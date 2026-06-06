@@ -27,10 +27,10 @@ func (p *githubProvider) CheckDeps() error {
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
 		var err error
-		token, err = keychainGet(p.cfg.Daemon.KeychainService, "GITHUB_TOKEN")
+		token, err = keychainGet("GITHUB_TOKEN", p.cfg.Daemon.KeychainService)
 		if err != nil || token == "" {
-			return fmt.Errorf("GITHUB_TOKEN not found in environment or Keychain (service=%s)\nStore it with: security add-generic-password -a GITHUB_TOKEN -s %s -w <token>",
-				p.cfg.Daemon.KeychainService, p.cfg.Daemon.KeychainService)
+			return fmt.Errorf("GITHUB_TOKEN not found in environment or Keychain\nStore it with: security add-generic-password -a %s -s GITHUB_TOKEN -w <token>",
+				p.cfg.Daemon.KeychainService)
 		}
 	}
 	p.token = token

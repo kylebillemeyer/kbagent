@@ -28,10 +28,10 @@ func (p *planeProvider) CheckDeps() error {
 	apiKey := os.Getenv("PLANE_API_KEY")
 	if apiKey == "" {
 		var err error
-		apiKey, err = keychainGet(p.cfg.Daemon.KeychainService, "PLANE_API_KEY")
+		apiKey, err = keychainGet("PLANE_API_KEY", p.cfg.Daemon.KeychainService)
 		if err != nil || apiKey == "" {
-			return fmt.Errorf("PLANE_API_KEY not found in environment or Keychain (service=%s)\nStore it with: security add-generic-password -a PLANE_API_KEY -s %s -w <key>",
-				p.cfg.Daemon.KeychainService, p.cfg.Daemon.KeychainService)
+			return fmt.Errorf("PLANE_API_KEY not found in environment or Keychain\nStore it with: security add-generic-password -a %s -s PLANE_API_KEY -w <key>",
+				p.cfg.Daemon.KeychainService)
 		}
 	}
 	p.apiKey = apiKey

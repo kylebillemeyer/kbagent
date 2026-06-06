@@ -244,10 +244,10 @@ func resolveSecret(cfg *config.Config, name string) (string, error) {
 	if val != "" {
 		return val, nil
 	}
-	val, err := keychainGet(cfg.Daemon.KeychainService, name)
+	val, err := keychainGet(name, cfg.Daemon.KeychainService)
 	if err != nil || val == "" {
-		return "", fmt.Errorf("%s not found in environment or Keychain (service=%s)\nStore it with: security add-generic-password -a %s -s %s -w <value>",
-			name, cfg.Daemon.KeychainService, name, cfg.Daemon.KeychainService)
+		return "", fmt.Errorf("%s not found in environment or Keychain\nStore it with: security add-generic-password -a %s -s %s -w <value>",
+			name, cfg.Daemon.KeychainService, name)
 	}
 	return val, nil
 }
