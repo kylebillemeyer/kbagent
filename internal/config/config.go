@@ -10,14 +10,14 @@ import (
 
 type Config struct {
 	Daemon   DaemonConfig   `mapstructure:"daemon"`
+	Dev      DevConfig      `mapstructure:"dev"`
 	Provider ProviderConfig `mapstructure:"provider"`
 }
 
 type DaemonConfig struct {
 	RepoPath        string `mapstructure:"repo_path"`
 	WorktreesDir    string `mapstructure:"worktrees_dir"`
-	DockerImage     string `mapstructure:"docker_image"`
-	Dockerfile      string `mapstructure:"dockerfile"`
+	RepoSlug        string `mapstructure:"repo_slug"`
 	LogFile         string `mapstructure:"log_file"`
 	TicketProvider  string `mapstructure:"ticket_provider"`
 	MaxTurns        int    `mapstructure:"max_turns"`
@@ -25,6 +25,12 @@ type DaemonConfig struct {
 	SleepError      int    `mapstructure:"sleep_error"`
 	KeychainService string `mapstructure:"keychain_service"`
 	ValidateCmd     string `mapstructure:"validate_cmd"`
+}
+
+// DevConfig controls the kbagent dev SSH-tunnel feature.
+type DevConfig struct {
+	AppPort      int `mapstructure:"app_port"`
+	PortRangeMin int `mapstructure:"port_range_min"`
 }
 
 type ProviderConfig struct {
@@ -37,14 +43,14 @@ type GitHubConfig struct {
 }
 
 type PlaneConfig struct {
-	BaseURL          string `mapstructure:"base_url"`
-	WorkspaceSlug    string `mapstructure:"workspace_slug"`
-	ProjectID        string `mapstructure:"project_id"`
-	StateBacklog     string `mapstructure:"state_backlog"`
+	BaseURL           string `mapstructure:"base_url"`
+	WorkspaceSlug     string `mapstructure:"workspace_slug"`
+	ProjectID         string `mapstructure:"project_id"`
+	StateBacklog      string `mapstructure:"state_backlog"`
 	StateSpecApproved string `mapstructure:"state_spec_approved"`
-	StateInProgress  string `mapstructure:"state_in_progress"`
-	StateNeedsInput  string `mapstructure:"state_needs_input"`
-	StateInReview    string `mapstructure:"state_in_review"`
+	StateInProgress   string `mapstructure:"state_in_progress"`
+	StateNeedsInput   string `mapstructure:"state_needs_input"`
+	StateInReview     string `mapstructure:"state_in_review"`
 }
 
 // Load resolves config in this order:
@@ -67,9 +73,9 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetDefault("daemon.max_turns", 50)
 	v.SetDefault("daemon.sleep_no_work", 15)
 	v.SetDefault("daemon.sleep_error", 300)
-	v.SetDefault("daemon.docker_image", "agent")
 	v.SetDefault("daemon.log_file", filepath.Join(os.Getenv("HOME"), "Library", "Logs", "kbagent.log"))
 	v.SetDefault("daemon.keychain_service", "kbagent")
+	v.SetDefault("dev.port_range_min", 3001)
 	v.SetDefault("provider.plane.base_url", "https://api.plane.so")
 
 	if err := v.ReadInConfig(); err != nil {
