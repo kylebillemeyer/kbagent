@@ -22,5 +22,5 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default: ./kbagent.toml)")
+	rootCmd.PersistentFlags().StringVarP(&cfgFile, "file", "f", "", "config file (default: walks up from cwd looking for kbagent.toml)")
 }
