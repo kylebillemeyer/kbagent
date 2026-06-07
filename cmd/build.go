@@ -11,19 +11,13 @@ import (
 )
 
 var buildCmd = &cobra.Command{
-	Use:          "build [project]",
+	Use:          "build",
 	Short:        "Build the Docker agent image for a project",
-	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
-	Example: `  kbagent build                  # reads ./kbagent.toml
-  kbagent build drum-trainer     # reads ~/.config/kbagent/drum-trainer.toml`,
+	Example: `  kbagent build                        # walks up from cwd to find kbagent.toml
+  kbagent build -f /path/to/kbagent.toml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		project := ""
-		if len(args) > 0 {
-			project = args[0]
-		}
-
-		cfg, err := config.Load(cfgFile, project)
+		cfg, err := config.Load(cfgFile)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}

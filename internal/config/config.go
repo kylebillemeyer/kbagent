@@ -48,25 +48,19 @@ type PlaneConfig struct {
 }
 
 // Load resolves config in this order:
-//  1. cfgFile flag (explicit path)
-//  2. project name → ~/.config/kbagent/<project>.toml
-//  3. ./kbagent.toml in the current directory
-func Load(cfgFile, project string) (*Config, error) {
+//  1. cfgFile flag (-f/--file explicit path)
+//  2. Walk up from cwd looking for kbagent.toml
+func Load(cfgFile string) (*Config, error) {
 	v := viper.New()
 
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
-	} else if project != "" {
-		home, _ := os.UserHomeDir()
-		path := filepath.Join(home, ".config", "kbagent", project+".toml")
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return nil, fmt.Errorf("no config found for project %q (looked at %s)", project, path)
+	} else {
+		path, err := findConfigFile()
+		if err != nil {
+			return nil, err
 		}
 		v.SetConfigFile(path)
-	} else {
-		v.SetConfigName("kbagent")
-		v.SetConfigType("toml")
-		v.AddConfigPath(".")
 	}
 
 	v.SetDefault("daemon.ticket_provider", "github")
@@ -89,8 +83,22 @@ func Load(cfgFile, project string) (*Config, error) {
 	return &cfg, nil
 }
 
-// ConfigDir returns the directory where named project configs are stored.
-func ConfigDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "kbagent")
+// findConfigFile walks up from cwd until it finds a kbagent.toml.
+func findConfigFile() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	start := dir
+	for {
+		path := filepath.Join(dir, "kbagent.toml")
+		if _, err := os.Stat(path); err == nil {
+			return path, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("no kbagent.toml found in %s or any parent directory", start)
+		}
+		dir = parent
+	}
 }

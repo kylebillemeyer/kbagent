@@ -14,20 +14,13 @@ import (
 var providerFlag string
 
 var runCmd = &cobra.Command{
-	Use:          "run [project]",
+	Use:          "run",
 	Short:        "Start the agent daemon",
-	Args:         cobra.MaximumNArgs(1),
 	SilenceUsage: true,
-	Example: `  kbagent run                   # reads ./kbagent.toml
-  kbagent run drum-trainer      # reads ~/.config/kbagent/drum-trainer.toml
-  kbagent run --config /path/to/kbagent.toml`,
+	Example: `  kbagent run                        # walks up from cwd to find kbagent.toml
+  kbagent run -f /path/to/kbagent.toml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		project := ""
-		if len(args) > 0 {
-			project = args[0]
-		}
-
-		cfg, err := config.Load(cfgFile, project)
+		cfg, err := config.Load(cfgFile)
 		if err != nil {
 			return fmt.Errorf("load config: %w", err)
 		}
