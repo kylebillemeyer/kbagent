@@ -104,10 +104,10 @@ func (inv *Invoker) buildAgentPrompt(worktree, mode, closesRef string) string {
 	switch mode {
 	case "needs-input":
 		preamble = "A ticket was blocked waiting for human input. The human has replied — read TICKET.md (which includes the replies at the bottom) and continue implementing."
-		planInstructions = "Read AGENT_PLAN.md to see what was completed before the block. Check off tasks as you complete them and commit the updates."
+		planInstructions = "Read AGENT_PLAN.md to see what was completed before the block. Check off tasks as you complete them."
 	case "continuing":
 		preamble = "A ticket hit its turn limit. The assessor determined work was progressing. Read AGENT_PLAN.md — it has a continuation note. Pick up from the first unchecked task."
-		planInstructions = "Read AGENT_PLAN.md first. Check off tasks ([x]) as you complete them and commit the updates immediately after each task."
+		planInstructions = "Read AGENT_PLAN.md first. Check off tasks ([x]) as you complete them."
 	default: // fresh
 		preamble = "Implement the ticket described in TICKET.md."
 		planInstructions = `Before writing any code:
@@ -119,8 +119,7 @@ func (inv *Invoker) buildAgentPrompt(worktree, mode, closesRef string) string {
    - [ ] Task two
    ## Decisions / blockers
    (fill in as you go)
-2. Commit AGENT_PLAN.md immediately before any implementation work.
-3. Check off tasks ([x]) as you complete them and commit the updates.`
+2. Check off tasks ([x]) as you complete them. Do not commit AGENT_PLAN.md.`
 	}
 
 	validateLine := ""
@@ -169,8 +168,7 @@ If PROGRESS — the remaining work is clear and completable:
   a. Append to AGENT_PLAN.md (create if missing):
        ## Assessor Continuation Note
        <2-3 sentences: what is done, what remains, where to start next>
-  b. Commit: git add AGENT_PLAN.md && git commit -m 'Assessor continuation note'
-  c. Write AGENT_STATUS.md with exactly:
+  b. Write AGENT_STATUS.md with exactly:
        spec-approved
 
 If STUCK — the agent needs human input:
