@@ -33,7 +33,7 @@ kbagent/
 ## Key constraints
 
 - **macOS only** — credentials are read from the macOS Keychain via `security find-generic-password`. Do not add cross-platform credential support; it would complicate the UX without serving the actual user.
-- **No test suite** — validate with `go build ./...`. Do not add tests unless explicitly asked.
+- **Testing is required** — every new package or non-trivial function needs unit tests. Provider implementations need integration tests that hit a real API (no mocks). Tests run in CI via `go test ./...`.
 - **Provider interface is the abstraction boundary** — all ticket-system-specific knowledge (API calls, state IDs, label names) lives inside `internal/provider/`. The daemon and agent packages must never import ticket-system types or make ticket API calls directly.
 - **AGENT_STATUS.md format is a contract** — the daemon parses it by reading the first line as a status keyword (`needs-review`, `needs-input`, or `spec-approved`). Never change this format without updating both the agent prompt in `agent.go` and the parser in `daemon.go`.
 - **Docker mount strategy** — the daemon mounts `filepath.Dir(cfg.RepoPath)` (the parent of the repo) into the container at the same path. This is why worktrees (which live alongside the repo) are accessible inside the container. Do not change the mount point without auditing all worktree path construction.
@@ -143,7 +143,8 @@ git push --force-with-lease origin feat/ticket-N
 ## Development
 
 ```bash
-go build ./...   # validate before opening a PR
+go build ./...   # must pass before opening a PR
+go test ./...    # must pass before opening a PR
 ```
 
 Run the daemon from anywhere inside the repo — it walks up to find `kbagent.toml`:
