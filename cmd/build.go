@@ -28,13 +28,17 @@ var buildCmd = &cobra.Command{
 			return fmt.Errorf("load config: %w", err)
 		}
 
+		if cfg.Daemon.Dockerfile == "" {
+			return fmt.Errorf("daemon.dockerfile is not set in config — add the path to your Dockerfile (relative to repo_path or absolute)")
+		}
+
 		dockerfile := cfg.Daemon.Dockerfile
 		if !filepath.IsAbs(dockerfile) {
 			dockerfile = filepath.Join(cfg.Daemon.RepoPath, dockerfile)
 		}
 
 		if _, err := os.Stat(dockerfile); err != nil {
-			return fmt.Errorf("dockerfile not found at %s (set daemon.dockerfile in config)", dockerfile)
+			return fmt.Errorf("dockerfile not found at %s", dockerfile)
 		}
 
 		image := cfg.Daemon.DockerImage

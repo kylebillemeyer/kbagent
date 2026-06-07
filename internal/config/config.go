@@ -74,7 +74,6 @@ func Load(cfgFile, project string) (*Config, error) {
 	v.SetDefault("daemon.sleep_no_work", 1800)
 	v.SetDefault("daemon.sleep_error", 300)
 	v.SetDefault("daemon.docker_image", "agent")
-	v.SetDefault("daemon.dockerfile", "scripts/Dockerfile")
 	v.SetDefault("daemon.log_file", filepath.Join(os.Getenv("HOME"), "Library", "Logs", "kbagent.log"))
 	v.SetDefault("daemon.keychain_service", "kbagent")
 	v.SetDefault("provider.plane.base_url", "https://api.plane.so")

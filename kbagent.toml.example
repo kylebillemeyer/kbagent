@@ -5,8 +5,12 @@ repo_path = "/Users/you/projects/my-project"
 # Directory where per-ticket git worktrees will be created.
 worktrees_dir = "/Users/you/projects/my-project-worktrees"
 
-# Docker image that has claude CLI installed (see drum-trainer/scripts/Dockerfile for reference).
+# Docker image name for the agent container.
 docker_image = "my-project-agent"
+
+# Path to the Dockerfile used by `kbagent build`. Relative to repo_path or absolute.
+# Required to use `kbagent build` — no default.
+dockerfile = "path/to/Dockerfile"
 
 # Log file path.
 log_file = "/Users/you/Library/Logs/kbagent.log"
