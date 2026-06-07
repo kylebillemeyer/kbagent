@@ -50,10 +50,9 @@ workspace_slug = "my-workspace"
 project_id = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 
 # State UUIDs — find these via: GET /api/v1/workspaces/<slug>/projects/<id>/states/
-state_backlog    = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-state_in_progress = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-state_in_review  = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-
-# Label UUIDs — find these via: GET /api/v1/workspaces/<slug>/projects/<id>/labels/
-label_spec_approved = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-label_needs_input   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# Create "Spec Approved" (group: unstarted) and "Needs Input" (group: started) states in Plane.
+state_backlog       = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+state_spec_approved = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+state_in_progress   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+state_needs_input   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+state_in_review     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"

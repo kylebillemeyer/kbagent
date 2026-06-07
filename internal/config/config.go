@@ -37,14 +37,14 @@ type GitHubConfig struct {
 }
 
 type PlaneConfig struct {
-	BaseURL           string `mapstructure:"base_url"`
-	WorkspaceSlug     string `mapstructure:"workspace_slug"`
-	ProjectID         string `mapstructure:"project_id"`
-	StateBacklog      string `mapstructure:"state_backlog"`
-	StateInProgress   string `mapstructure:"state_in_progress"`
-	StateInReview     string `mapstructure:"state_in_review"`
-	LabelSpecApproved string `mapstructure:"label_spec_approved"`
-	LabelNeedsInput   string `mapstructure:"label_needs_input"`
+	BaseURL          string `mapstructure:"base_url"`
+	WorkspaceSlug    string `mapstructure:"workspace_slug"`
+	ProjectID        string `mapstructure:"project_id"`
+	StateBacklog     string `mapstructure:"state_backlog"`
+	StateSpecApproved string `mapstructure:"state_spec_approved"`
+	StateInProgress  string `mapstructure:"state_in_progress"`
+	StateNeedsInput  string `mapstructure:"state_needs_input"`
+	StateInReview    string `mapstructure:"state_in_review"`
 }
 
 // Load resolves config in this order:

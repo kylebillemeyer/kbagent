@@ -39,15 +39,14 @@ func (p *planeProvider) CheckDeps() error {
 }
 
 type planeIssue struct {
-	ID          string   `json:"id"`
-	SequenceID  int      `json:"sequence_id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description_stripped"`
-	Priority    string   `json:"priority"`
-	State       string   `json:"state"`
-	LabelIDs    []string `json:"label_ids"`
-	CreatedAt   string   `json:"created_at"`
-	ExternalID  string   `json:"external_id"`
+	ID         string `json:"id"`
+	SequenceID int    `json:"sequence_id"`
+	Name       string `json:"name"`
+	Description string `json:"description_stripped"`
+	Priority   string `json:"priority"`
+	State      string `json:"state"`
+	CreatedAt  string `json:"created_at"`
+	ExternalID string `json:"external_id"`
 }
 
 type planeListResponse struct {
@@ -112,12 +111,8 @@ func (p *planeProvider) patchIssue(ctx context.Context, id string, patch map[str
 	return err
 }
 
-func (p *planeProvider) currentLabels(ctx context.Context, id string) ([]string, error) {
-	issue, err := p.getIssue(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	return issue.LabelIDs, nil
+func (p *planeProvider) setState(ctx context.Context, id, stateID string) error {
+	return p.patchIssue(ctx, id, map[string]any{"state": stateID})
 }
 
 func (p *planeProvider) FindNext(ctx context.Context) (string, error) {
@@ -127,11 +122,11 @@ func (p *planeProvider) FindNext(ctx context.Context) (string, error) {
 	}
 
 	priorityOrder := map[string]int{"urgent": 0, "high": 1, "medium": 2, "low": 3}
-	specApproved := p.cfg.Provider.Plane.LabelSpecApproved
+	specApprovedState := p.cfg.Provider.Plane.StateSpecApproved
 
 	var eligible []planeIssue
 	for _, issue := range issues {
-		if contains(issue.LabelIDs, specApproved) {
+		if issue.State == specApprovedState {
 			if _, ok := priorityOrder[issue.Priority]; ok {
 				eligible = append(eligible, issue)
 			}
@@ -159,9 +154,9 @@ func (p *planeProvider) FindResumable(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	needsInput := p.cfg.Provider.Plane.LabelNeedsInput
+	needsInputState := p.cfg.Provider.Plane.StateNeedsInput
 	for _, issue := range issues {
-		if !contains(issue.LabelIDs, needsInput) {
+		if issue.State != needsInputState {
 			continue
 		}
 		data, err := p.apiRequest(ctx, "GET",
@@ -224,16 +219,7 @@ func (p *planeProvider) FetchTicket(ctx context.Context, id, worktree, mode stri
 }
 
 func (p *planeProvider) MarkInProgress(ctx context.Context, id string) error {
-	labels, err := p.currentLabels(ctx, id)
-	if err != nil {
-		return err
-	}
-	pc := p.cfg.Provider.Plane
-	labels = removeAll(labels, pc.LabelSpecApproved, pc.LabelNeedsInput)
-	return p.patchIssue(ctx, id, map[string]any{
-		"state":     pc.StateInProgress,
-		"label_ids": labels,
-	})
+	return p.setState(ctx, id, p.cfg.Provider.Plane.StateInProgress)
 }
 
 func (p *planeProvider) MarkNeedsInput(ctx context.Context, id, comment string) error {
@@ -242,41 +228,15 @@ func (p *planeProvider) MarkNeedsInput(ctx context.Context, id, comment string) 
 			fmt.Sprintf("/projects/%s/issues/%s/comments/", p.cfg.Provider.Plane.ProjectID, id),
 			map[string]any{"comment_html": "<p>" + comment + "</p>"})
 	}
-	labels, err := p.currentLabels(ctx, id)
-	if err != nil {
-		return err
-	}
-	pc := p.cfg.Provider.Plane
-	labels = appendIfMissing(labels, pc.LabelNeedsInput)
-	return p.patchIssue(ctx, id, map[string]any{
-		"state":     pc.StateBacklog,
-		"label_ids": labels,
-	})
+	return p.setState(ctx, id, p.cfg.Provider.Plane.StateNeedsInput)
 }
 
 func (p *planeProvider) MarkNeedsReview(ctx context.Context, id string) error {
-	labels, err := p.currentLabels(ctx, id)
-	if err != nil {
-		return err
-	}
-	return p.patchIssue(ctx, id, map[string]any{
-		"state":     p.cfg.Provider.Plane.StateInReview,
-		"label_ids": labels,
-	})
+	return p.setState(ctx, id, p.cfg.Provider.Plane.StateInReview)
 }
 
 func (p *planeProvider) MarkSpecApproved(ctx context.Context, id string) error {
-	labels, err := p.currentLabels(ctx, id)
-	if err != nil {
-		return err
-	}
-	pc := p.cfg.Provider.Plane
-	labels = removeAll(labels, pc.LabelNeedsInput)
-	labels = appendIfMissing(labels, pc.LabelSpecApproved)
-	return p.patchIssue(ctx, id, map[string]any{
-		"state":     pc.StateBacklog,
-		"label_ids": labels,
-	})
+	return p.setState(ctx, id, p.cfg.Provider.Plane.StateSpecApproved)
 }
 
 func (p *planeProvider) IsComplete(ctx context.Context, id string) (bool, error) {
