@@ -22,7 +22,7 @@ ticket_provider = "plane"
 max_turns = 50
 
 # Seconds to sleep when the queue is empty.
-sleep_no_work = 1800
+sleep_no_work = 15
 
 # Seconds to sleep after an unexpected error.
 sleep_error = 300

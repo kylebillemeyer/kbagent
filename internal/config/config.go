@@ -65,7 +65,7 @@ func Load(cfgFile string) (*Config, error) {
 
 	v.SetDefault("daemon.ticket_provider", "github")
 	v.SetDefault("daemon.max_turns", 50)
-	v.SetDefault("daemon.sleep_no_work", 1800)
+	v.SetDefault("daemon.sleep_no_work", 15)
 	v.SetDefault("daemon.sleep_error", 300)
 	v.SetDefault("daemon.docker_image", "agent")
 	v.SetDefault("daemon.log_file", filepath.Join(os.Getenv("HOME"), "Library", "Logs", "kbagent.log"))
