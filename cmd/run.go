@@ -16,6 +16,7 @@ var providerFlag string
 var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Start the agent daemon",
+	SilenceUsage: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := config.Load(cfgFile)
 		if err != nil {
