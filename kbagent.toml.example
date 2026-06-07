@@ -5,12 +5,9 @@ repo_path = "/Users/you/projects/my-project"
 # Directory where per-ticket git worktrees will be created.
 worktrees_dir = "/Users/you/projects/my-project-worktrees"
 
-# Docker image name for the agent container.
-docker_image = "my-project-agent"
-
-# Path to the Dockerfile used by `kbagent build`. Relative to repo_path or absolute.
-# Required to use `kbagent build` — no default.
-dockerfile = "path/to/Dockerfile"
+# Optional short name used in DevPod workspace names: {repo_slug}-{ticket-id}.
+# Defaults to the last path component of repo_path.
+# repo_slug = "garden"
 
 # Log file path.
 log_file = "/Users/you/Library/Logs/kbagent.log"
@@ -39,6 +36,18 @@ keychain_service = "kbagent"
 #   validate_cmd = "cd frontend && npx tsc --noEmit"
 #   validate_cmd = "go build ./..."
 validate_cmd = ""
+
+# Removed keys (deprecated since DevPod migration):
+#   docker_image — replaced by .devcontainer/devcontainer.json in each repo
+#   dockerfile   — replaced by .devcontainer/devcontainer.json in each repo
+
+[dev]
+# Port the dev server listens on inside the DevPod workspace container.
+app_port = 3000
+
+# Lowest host port kbagent assigns for SSH port-forward tunnels.
+# kbagent dev allocates the lowest free port >= this value per active session.
+port_range_min = 3001
 
 [provider.github]
 # owner/repo — auto-detected from `gh repo view` if omitted.

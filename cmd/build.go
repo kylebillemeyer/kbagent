@@ -2,53 +2,25 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
 
-	"github.com/kylebillemeyer/kbagent/internal/config"
 	"github.com/spf13/cobra"
 )
 
 var buildCmd = &cobra.Command{
-	Use:          "build",
-	Short:        "Build the Docker agent image for a project",
+	Use:   "build",
+	Short: "Deprecated: agent images are no longer built by kbagent",
+	Long: `The build command has been superseded by DevPod workspaces.
+
+Each repo now provides its own .devcontainer/devcontainer.json which DevPod
+uses to provision the agent environment. No Docker image build step is needed.
+
+Prerequisites:
+  brew install devpod
+  Docker must be running locally
+  Each repo must have .devcontainer/devcontainer.json`,
 	SilenceUsage: true,
-	Example: `  kbagent build                        # walks up from cwd to find kbagent.toml
-  kbagent build -f /path/to/kbagent.toml`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := config.Load(cfgFile)
-		if err != nil {
-			return fmt.Errorf("load config: %w", err)
-		}
-
-		if cfg.Daemon.Dockerfile == "" {
-			return fmt.Errorf("daemon.dockerfile is not set in config — add the path to your Dockerfile (relative to repo_path or absolute)")
-		}
-
-		dockerfile := cfg.Daemon.Dockerfile
-		if !filepath.IsAbs(dockerfile) {
-			dockerfile = filepath.Join(cfg.Daemon.RepoPath, dockerfile)
-		}
-
-		if _, err := os.Stat(dockerfile); err != nil {
-			return fmt.Errorf("dockerfile not found at %s", dockerfile)
-		}
-
-		image := cfg.Daemon.DockerImage
-		context := filepath.Dir(dockerfile)
-
-		fmt.Printf("Building %s from %s\n", image, dockerfile)
-
-		c := exec.Command("docker", "build", "-t", image, "-f", dockerfile, context)
-		c.Stdout = os.Stdout
-		c.Stderr = os.Stderr
-		if err := c.Run(); err != nil {
-			return fmt.Errorf("docker build failed: %w", err)
-		}
-
-		fmt.Printf("\n✓ Built %s\n", image)
-		return nil
+		return fmt.Errorf("build is no longer supported — see 'kbagent build --help' for details")
 	},
 }
 

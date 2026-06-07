@@ -7,14 +7,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-// Invoker runs the agent Docker container and builds prompts.
+// Invoker runs the agent inside a DevPod workspace and builds prompts.
 type Invoker struct {
-	DockerImage      string
-	RepoParentDir    string
+	RepoSlug         string
 	GitHubToken      string
 	ClaudeOAuthToken string
 	MaxTurns         int
@@ -22,12 +22,20 @@ type Invoker struct {
 	Log              io.Writer
 }
 
-// InvokeClaude runs a claude session inside Docker for the given worktree and mode.
+// WorkspaceName returns the DevPod workspace name for a repo slug and worktree path.
+// The worktree path must end with "ticket-{name}" (e.g. /path/to/ticket-47).
+func WorkspaceName(repoSlug, worktree string) string {
+	base := filepath.Base(worktree)
+	ticketName := strings.TrimPrefix(base, "ticket-")
+	return repoSlug + "-" + ticketName
+}
+
+// InvokeClaude runs a claude session inside a DevPod workspace for the given worktree and mode.
 // closesRef is the "Closes #NNN" string extracted from TICKET.md (empty if not a GitHub-linked ticket).
 // Returns combined stdout+stderr output and the run error.
 func (inv *Invoker) InvokeClaude(worktree, mode, closesRef string) (string, error) {
 	prompt := inv.buildAgentPrompt(worktree, mode, closesRef)
-	return inv.runDocker(worktree,
+	return inv.runDevPod(worktree,
 		"claude", "-p", prompt,
 		"--permission-mode", "bypassPermissions",
 		"--max-turns", strconv.Itoa(inv.MaxTurns),
@@ -37,26 +45,33 @@ func (inv *Invoker) InvokeClaude(worktree, mode, closesRef string) (string, erro
 // InvokeAssessor runs a lightweight assessor session after a turn-limit exit.
 func (inv *Invoker) InvokeAssessor(worktree string) (string, error) {
 	prompt := inv.buildAssessorPrompt(worktree)
-	return inv.runDocker(worktree,
+	return inv.runDevPod(worktree,
 		"claude", "-p", prompt,
 		"--permission-mode", "bypassPermissions",
 		"--max-turns", "10",
 	)
 }
 
-func (inv *Invoker) runDocker(worktree string, args ...string) (string, error) {
-	cmdArgs := []string{
-		"run", "--rm", "-t",
-		"--volume", inv.RepoParentDir + ":" + inv.RepoParentDir,
-		"--env", "GITHUB_TOKEN=" + inv.GitHubToken,
-		"--env", "CLAUDE_CODE_OAUTH_TOKEN=" + inv.ClaudeOAuthToken,
-		"--workdir", worktree,
-		inv.DockerImage,
-	}
-	cmdArgs = append(cmdArgs, args...)
+func (inv *Invoker) runDevPod(worktree string, args ...string) (string, error) {
+	wsName := WorkspaceName(inv.RepoSlug, worktree)
 
-	// We want to stream output in real time AND capture it for analysis.
-	// os/exec.Cmd.Start + manual copy lets us do both without a goroutine leak.
+	// Step 1: provision workspace (idempotent — safe to call if it already exists).
+	upCmd := exec.Command("devpod", "up", worktree, "--id", wsName, "--provider", "docker")
+	upCmd.Stdout = os.Stdout
+	upCmd.Stderr = os.Stderr
+	if err := upCmd.Run(); err != nil {
+		return "", fmt.Errorf("devpod up: %w", err)
+	}
+
+	// Step 2: run command inside the workspace with real-time streaming + capture.
+	sshArgs := []string{
+		"ssh", wsName, "--",
+		"env",
+		"GITHUB_TOKEN=" + inv.GitHubToken,
+		"CLAUDE_CODE_OAUTH_TOKEN=" + inv.ClaudeOAuthToken,
+	}
+	sshArgs = append(sshArgs, args...)
+
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return "", fmt.Errorf("pipe: %w", err)
@@ -69,17 +84,16 @@ func (inv *Invoker) runDocker(worktree string, args ...string) (string, error) {
 	}
 	mw := io.MultiWriter(writers...)
 
-	cmd := exec.Command("docker", cmdArgs...)
+	cmd := exec.Command("devpod", sshArgs...)
 	cmd.Stdout = mw
 	cmd.Stderr = mw
 
 	if err := cmd.Start(); err != nil {
 		pw.Close()
 		pr.Close()
-		return "", fmt.Errorf("docker start: %w", err)
+		return "", fmt.Errorf("devpod ssh start: %w", err)
 	}
 
-	// Read captured output into buf while the process runs.
 	var buf bytes.Buffer
 	doneCh := make(chan struct{})
 	go func() {

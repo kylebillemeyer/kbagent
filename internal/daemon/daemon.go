@@ -44,15 +44,10 @@ func Run(ctx context.Context, cfg *config.Config, p provider.Provider) error {
 		return err
 	}
 
-	if err := checkDocker(cfg.Daemon.DockerImage); err != nil {
-		return err
-	}
-
 	log.logf("daemon started — provider: %s", cfg.Daemon.TicketProvider)
 
 	inv := &agent.Invoker{
-		DockerImage:      cfg.Daemon.DockerImage,
-		RepoParentDir:    filepath.Dir(cfg.Daemon.RepoPath),
+		RepoSlug:         resolveRepoSlug(cfg.Daemon.RepoPath, cfg.Daemon.RepoSlug),
 		GitHubToken:      githubToken,
 		ClaudeOAuthToken: claudeToken,
 		MaxTurns:         cfg.Daemon.MaxTurns,
@@ -181,6 +176,13 @@ func cleanupWorktree(ctx context.Context, cfg *config.Config, log *logger, p pro
 		return
 	}
 	if done {
+		wsName := agent.WorkspaceName(resolveRepoSlug(cfg.Daemon.RepoPath, cfg.Daemon.RepoSlug), worktree)
+		deleteCmd := exec.CommandContext(ctx, "devpod", "delete", wsName, "--force")
+		if err := deleteCmd.Run(); err != nil {
+			// Workspace may not exist if devpod up never ran — ignore.
+			log.logf("WARN: devpod delete %s: %v (ignoring)", wsName, err)
+		}
+
 		cmd := exec.CommandContext(ctx, "git", "-C", cfg.Daemon.RepoPath, "worktree", "remove", worktree, "--force")
 		if err := cmd.Run(); err != nil {
 			log.logf("WARN: worktree remove failed: %v", err)
@@ -239,6 +241,13 @@ func parseRateLimitSleep(output string) time.Duration {
 	return reset.Sub(now)
 }
 
+func resolveRepoSlug(repoPath, configuredSlug string) string {
+	if configuredSlug != "" {
+		return configuredSlug
+	}
+	return filepath.Base(repoPath)
+}
+
 func resolveSecret(cfg *config.Config, name string) (string, error) {
 	val := os.Getenv(name)
 	if val != "" {
@@ -261,13 +270,6 @@ func keychainGet(service, account string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-func checkDocker(image string) error {
-	if err := exec.Command("docker", "image", "inspect", image).Run(); err != nil {
-		return fmt.Errorf("Docker image %q not found — build it first", image)
-	}
-	return nil
-}
-
 func openLog(path string) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, err
@@ -279,4 +281,3 @@ func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
-
