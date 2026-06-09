@@ -1,0 +1,25 @@
+{
+  "name": "kbagent",
+  "version": "1.0.0",
+  "description": "Autonomous coding agent daemon",
+  "bin": {
+    "kbagent": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "commander": "^12.0.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
