@@ -30,7 +30,7 @@ export class PlaneProvider implements Provider {
 
   async checkDeps(): Promise<void> {
     if (!this.cfg.planeApiKey) {
-      throw new Error('PLANE_API_KEY is required but not set');
+      throw new Error('KB_AGENT_PLANE_API_KEY is required but not set');
     }
     this.apiKey = this.cfg.planeApiKey;
   }
