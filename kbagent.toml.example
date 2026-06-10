@@ -1,0 +1,19 @@
+repo_path       = "/absolute/path/to/your-project"
+worktrees_dir   = "/absolute/path/to/your-project-worktrees"
+ticket_provider = "plane"
+validate_cmd    = "npm test"
+max_turns       = 50
+sleep_no_work   = 15
+sleep_error     = 300
+log_file        = "/Users/you/Library/Logs/kbagent.log"
+
+[plane]
+base_url       = "https://api.plane.so"
+workspace_slug = "your-workspace"
+project_id     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+state_backlog       = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+state_spec_approved = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+state_in_progress   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+state_needs_input   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+state_in_review     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
