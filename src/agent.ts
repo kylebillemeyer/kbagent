@@ -67,10 +67,9 @@ export class Invoker {
     return new Promise((resolve) => {
       const chunks: string[] = [];
       const proc = spawn('devpod', args, {
-        env: {
-          ...process.env,
-        },
+        env: { ...process.env },
         cwd: worktree,
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       const onData = (data: Buffer) => {
