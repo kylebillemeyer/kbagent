@@ -88,6 +88,7 @@ export class Invoker {
       const proc = spawn('devpod', args, {
         env: { ...process.env },
         cwd: worktree,
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       const onData = (data: Buffer) => {
