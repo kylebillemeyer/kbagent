@@ -9,7 +9,7 @@ const program = new Command();
 program
   .name('kbagent')
   .description('Autonomous coding agent daemon')
-  .option('-f, --file <path>', 'config .env file (default: walks up from cwd)');
+  .option('-f, --file <path>', `credentials file (default: ~/.kbagent/.env)`);
 
 program
   .command('daemon')

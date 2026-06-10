@@ -37,15 +37,38 @@ export class Invoker {
     );
   }
 
-  private runDevPod(workspace: string, worktree: string, ...claudeArgs: string[]): Promise<InvokeResult> {
+  private devpodUp(workspace: string, worktree: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn('devpod', ['up', worktree, '--id', workspace], {
+        env: {
+          ...process.env,
+          KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN: this.cfg.claudeOAuthToken,
+          KB_AGENT_GITHUB_TOKEN: this.cfg.githubToken,
+        },
+      });
+      const onData = (data: Buffer) => {
+        const text = data.toString();
+        process.stdout.write(text);
+        this.logStream?.write(text);
+      };
+      proc.stdout.on('data', onData);
+      proc.stderr.on('data', onData);
+      proc.on('close', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`devpod up exited with code ${code}`));
+      });
+      proc.on('error', reject);
+    });
+  }
+
+  private async runDevPod(workspace: string, worktree: string, ...claudeArgs: string[]): Promise<InvokeResult> {
+    await this.devpodUp(workspace, worktree);
     const args = ['ssh', workspace, '--', ...claudeArgs];
     return new Promise((resolve) => {
       const chunks: string[] = [];
       const proc = spawn('devpod', args, {
         env: {
           ...process.env,
-          GITHUB_TOKEN: this.cfg.githubToken,
-          CLAUDE_CODE_OAUTH_TOKEN: this.cfg.claudeOAuthToken,
         },
         cwd: worktree,
       });
