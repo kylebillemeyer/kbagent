@@ -13,6 +13,7 @@ function logf(logStream: fs.WriteStream, format: string, ...args: unknown[]): vo
 }
 
 function sleep(seconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(new Error('aborted'));
   return new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, seconds * 1000);
     signal.addEventListener('abort', () => {
@@ -227,7 +228,7 @@ export async function run(cfg: Config, p: Provider, signal: AbortSignal): Promis
       try {
         ({ id, needsInput } = await pickTicket(p, signal));
       } catch (err) {
-        if ((err as Error).message === 'aborted') return;
+        if (signal.aborted) return;
         log(`ERROR: pick ticket: ${err}`);
         await sleep(cfg.sleepError, signal);
         continue;
@@ -252,7 +253,7 @@ export async function run(cfg: Config, p: Provider, signal: AbortSignal): Promis
       try {
         await processTicket(cfg, p, inv, log, id, needsInput, signal);
       } catch (err) {
-        if ((err as Error).message === 'aborted') return;
+        if (signal.aborted) return;
         log(`ERROR: processTicket ${id}: ${err}`);
       }
     }
