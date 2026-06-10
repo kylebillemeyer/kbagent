@@ -63,7 +63,13 @@ export class Invoker {
 
   private async runDevPod(workspace: string, worktree: string, ...claudeArgs: string[]): Promise<InvokeResult> {
     await this.devpodUp(workspace, worktree);
-    const args = ['ssh', workspace, '--', ...claudeArgs];
+    const envPrefix = [
+      'env',
+      `CLAUDE_CODE_OAUTH_TOKEN=${this.cfg.claudeOAuthToken}`,
+      `GITHUB_TOKEN=${this.cfg.githubToken}`,
+      `KB_AGENT_PLANE_API_KEY=${this.cfg.planeApiKey}`,
+    ];
+    const args = ['ssh', workspace, '--', ...envPrefix, ...claudeArgs];
     return new Promise((resolve) => {
       const chunks: string[] = [];
       const proc = spawn('devpod', args, {
