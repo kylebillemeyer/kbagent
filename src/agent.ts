@@ -17,6 +17,12 @@ export class Invoker {
     this.logStream = logStream;
   }
 
+  private log(msg: string): void {
+    const line = `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] ${msg}\n`;
+    process.stdout.write(line);
+    this.logStream?.write(line);
+  }
+
   async invokeClaude(worktree: string, mode: string, closesRef: string): Promise<InvokeResult> {
     const prompt = this.buildAgentPrompt(worktree, mode, closesRef);
     const workspace = path.basename(worktree);
@@ -63,6 +69,7 @@ export class Invoker {
 
   private async runDevPod(workspace: string, worktree: string, ...claudeArgs: string[]): Promise<InvokeResult> {
     await this.devpodUp(workspace, worktree);
+    this.log(`workspace ready — starting claude in ${workspace}`);
     const args = ['ssh', workspace, '--', ...claudeArgs];
     return new Promise((resolve) => {
       const chunks: string[] = [];
