@@ -39,7 +39,7 @@ export class Invoker {
 
   private devpodUp(workspace: string, worktree: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      const proc = spawn('devpod', ['up', worktree, '--id', workspace], {
+      const proc = spawn('devpod', ['up', worktree, '--id', workspace, '--ide', 'none'], {
         env: {
           ...process.env,
           KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN: this.cfg.claudeOAuthToken,
