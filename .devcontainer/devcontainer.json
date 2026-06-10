@@ -7,6 +7,7 @@
   "postCreateCommand": "npm install -g @anthropic-ai/claude-code",
   "remoteEnv": {
     "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN}",
-    "GITHUB_TOKEN": "${localEnv:KB_AGENT_GITHUB_TOKEN}"
+    "GITHUB_TOKEN": "${localEnv:KB_AGENT_GITHUB_TOKEN}",
+    "KB_AGENT_PLANE_API_KEY": "${localEnv:KB_AGENT_PLANE_API_KEY}"
   }
 }
