@@ -20,21 +20,19 @@ export class Invoker {
   async invokeClaude(worktree: string, mode: string, closesRef: string): Promise<InvokeResult> {
     const prompt = this.buildAgentPrompt(worktree, mode, closesRef);
     const workspace = path.basename(worktree);
-    return this.runDevPod(workspace, worktree,
-      'claude', '-p', prompt,
+    return this.runDevPod(workspace, worktree, prompt, [
       '--permission-mode', 'bypassPermissions',
       '--max-turns', String(this.cfg.maxTurns),
-    );
+    ]);
   }
 
   async invokeAssessor(worktree: string): Promise<InvokeResult> {
     const prompt = this.buildAssessorPrompt(worktree);
     const workspace = path.basename(worktree);
-    return this.runDevPod(workspace, worktree,
-      'claude', '-p', prompt,
+    return this.runDevPod(workspace, worktree, prompt, [
       '--permission-mode', 'bypassPermissions',
       '--max-turns', '10',
-    );
+    ]);
   }
 
   private devpodUp(workspace: string, worktree: string): Promise<void> {
@@ -61,21 +59,35 @@ export class Invoker {
     });
   }
 
-  private async runDevPod(workspace: string, worktree: string, ...claudeArgs: string[]): Promise<InvokeResult> {
+  private async runDevPod(workspace: string, worktree: string, prompt: string, claudeFlags: string[]): Promise<InvokeResult> {
     await this.devpodUp(workspace, worktree);
-    const envPrefix = [
-      'env',
-      `CLAUDE_CODE_OAUTH_TOKEN=${this.cfg.claudeOAuthToken}`,
-      `GITHUB_TOKEN=${this.cfg.githubToken}`,
-      `KB_AGENT_PLANE_API_KEY=${this.cfg.planeApiKey}`,
+
+    const kbDir = path.join(worktree, '.kbagent');
+    fs.mkdirSync(kbDir, { recursive: true });
+    fs.writeFileSync(path.join(kbDir, 'prompt.md'), prompt, { mode: 0o600 });
+
+    const containerWorktree = `/workspaces/${workspace}`;
+    const runScript = [
+      '#!/bin/bash',
+      `PROMPT=$(cat ${containerWorktree}/.kbagent/prompt.md)`,
+      `exec claude -p "$PROMPT" ${claudeFlags.join(' ')}`,
+    ].join('\n');
+    fs.writeFileSync(path.join(kbDir, 'run.sh'), runScript, { mode: 0o700 });
+
+    const args = [
+      'ssh', workspace,
+      '--command', `bash ${containerWorktree}/.kbagent/run.sh`,
+      '--set-env', `CLAUDE_CODE_OAUTH_TOKEN=${this.cfg.claudeOAuthToken}`,
+      '--set-env', `GITHUB_TOKEN=${this.cfg.githubToken}`,
+      '--set-env', `KB_AGENT_PLANE_API_KEY=${this.cfg.planeApiKey}`,
+      '--workdir', containerWorktree,
+      '--start-services=false',
     ];
-    const args = ['ssh', workspace, '--', ...envPrefix, ...claudeArgs];
     return new Promise((resolve) => {
       const chunks: string[] = [];
       const proc = spawn('devpod', args, {
         env: { ...process.env },
         cwd: worktree,
-        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
       const onData = (data: Buffer) => {

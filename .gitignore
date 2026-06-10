@@ -4,3 +4,4 @@ AGENT_PLAN.md
 node_modules/
 dist/
 .env
+.kbagent/
