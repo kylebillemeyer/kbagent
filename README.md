@@ -34,7 +34,22 @@ To get your Claude Code OAuth token from the macOS Keychain:
 security find-generic-password -s "CLAUDE_CODE_OAUTH_TOKEN" -w
 ```
 
-### 3. Add a kbagent.toml to each target project
+### 3. Configure DevPod global env vars for MCP servers (one-time, per machine)
+
+Agent containers have Notion and Plane MCP servers baked in. The servers read their API keys from environment variables injected by DevPod at workspace creation time. You must export these in your shell so DevPod can pick them up:
+
+```sh
+# Add to ~/.zshrc or ~/.bashrc
+export NOTION_API_KEY=your-notion-api-key
+export PLANE_API_KEY=your-plane-api-key
+export PLANE_WORKSPACE_SLUG=your-plane-workspace-slug
+```
+
+After adding them, reload your shell (`source ~/.zshrc`) and verify with `echo $NOTION_API_KEY`.
+
+> These values are also documented in `.env.example` for reference. They are read from the host shell environment by DevPod — they do not need to be in `~/.kbagent/.env`.
+
+### 4. Add a kbagent.toml to each target project
 
 Drop a `kbagent.toml` at the root of each repo you want kbagent to manage. The daemon walks up from cwd to find it.
 
@@ -69,11 +84,11 @@ Create the following states in Plane before running:
 - **Needs Input** (group: started)
 - **In Review** (group: started)
 
-### 4. Add a CLAUDE.md to the target project
+### 5. Add a CLAUDE.md to the target project
 
 Create a `CLAUDE.md` at the repo root with project context for the agent. At minimum include: what the project does, how to build and test it, and any constraints the agent must respect. The agent reads this file before every ticket.
 
-### 5. Run the daemon
+### 6. Run the daemon
 
 ```sh
 cd your-project
