@@ -1,14 +1,12 @@
-CREATE SCHEMA IF NOT EXISTS kbagent;
-
-CREATE TABLE kbagent.workspaces (
+CREATE TABLE workspaces (
   id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   slug  TEXT NOT NULL UNIQUE,
   name  TEXT NOT NULL
 );
 
-CREATE TABLE kbagent.workspace_integrations (
+CREATE TABLE workspace_integrations (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID NOT NULL REFERENCES kbagent.workspaces(id),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id),
   role         TEXT NOT NULL,  -- 'tickets' | 'code' | 'docs'
   provider     TEXT NOT NULL,  -- 'plane' | 'linear' | 'github' | 'gitlab' | 'notion'
   external_id  TEXT NOT NULL,
@@ -17,9 +15,9 @@ CREATE TABLE kbagent.workspace_integrations (
   UNIQUE(provider, external_id)
 );
 
-CREATE TABLE kbagent.tickets (
+CREATE TABLE tickets (
   id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID NOT NULL REFERENCES kbagent.workspaces(id),
+  workspace_id UUID NOT NULL REFERENCES workspaces(id),
   provider     TEXT NOT NULL,
   external_id  TEXT NOT NULL,
   stage        TEXT NOT NULL,
@@ -28,9 +26,9 @@ CREATE TABLE kbagent.tickets (
   UNIQUE(provider, external_id)
 );
 
-CREATE TABLE kbagent.artifacts (
+CREATE TABLE artifacts (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  ticket_id          UUID NOT NULL REFERENCES kbagent.tickets(id),
+  ticket_id          UUID NOT NULL REFERENCES tickets(id),
   artifact_type      TEXT NOT NULL,  -- 'pr' | 'doc' | 'worktree'
   provider           TEXT NOT NULL,
   external_id        TEXT NOT NULL,
@@ -40,9 +38,9 @@ CREATE TABLE kbagent.artifacts (
   UNIQUE(artifact_type, provider, external_id)
 );
 
-CREATE TABLE kbagent.events (
+CREATE TABLE events (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  artifact_id           UUID NOT NULL REFERENCES kbagent.artifacts(id),
+  artifact_id           UUID NOT NULL REFERENCES artifacts(id),
   event_type            TEXT NOT NULL,
   payload               JSONB NOT NULL,
   status                TEXT NOT NULL DEFAULT 'pending',
@@ -53,13 +51,23 @@ CREATE TABLE kbagent.events (
   error                 TEXT
 );
 
-CREATE INDEX ON kbagent.events (artifact_id, status, created_at);
+CREATE INDEX ON events (artifact_id, status, created_at);
 
-CREATE TABLE kbagent.active_sessions (
-  artifact_id    UUID PRIMARY KEY REFERENCES kbagent.artifacts(id),
+CREATE TABLE active_sessions (
+  artifact_id    UUID PRIMARY KEY REFERENCES artifacts(id),
   pid            INT  NOT NULL,
   workspace_name TEXT NOT NULL,
   started_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_event_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
   window_minutes INT  NOT NULL
 );
+
+-- Backend-only service: the daemon connects with the service-role key (which
+-- bypasses RLS). Enable RLS with no policies so the anon/authenticated roles
+-- exposed via PostgREST cannot read or write these tables.
+ALTER TABLE workspaces             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE workspace_integrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tickets                ENABLE ROW LEVEL SECURITY;
+ALTER TABLE artifacts              ENABLE ROW LEVEL SECURITY;
+ALTER TABLE events                 ENABLE ROW LEVEL SECURITY;
+ALTER TABLE active_sessions        ENABLE ROW LEVEL SECURITY;
