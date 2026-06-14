@@ -21,6 +21,7 @@ export class Invoker {
     const prompt = this.buildAgentPrompt(worktree, mode, closesRef);
     const workspace = path.basename(worktree);
     return this.runDevPod(workspace, worktree, prompt, [
+      '--verbose', // stream a live turn-by-turn trace instead of only the final result
       '--permission-mode', 'bypassPermissions',
       '--max-turns', String(this.cfg.maxTurns),
     ]);

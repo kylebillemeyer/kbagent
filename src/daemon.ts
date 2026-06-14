@@ -32,6 +32,21 @@ function fileExists(p: string): boolean {
   }
 }
 
+// A directory can exist at the worktree path without being a registered git
+// worktree (e.g. left behind as plain scaffolding after a prior `worktree
+// remove`). Treating such a stale dir as reusable both skips `worktree add`
+// and — because its inode no longer matches what a reused devpod container is
+// bound to — produces an empty/stale bind mount inside the container.
+function isValidWorktree(repoPath: string, worktree: string): boolean {
+  if (!fileExists(path.join(worktree, '.git'))) return false;
+  try {
+    const out = execFileSync('git', ['-C', repoPath, 'worktree', 'list', '--porcelain']).toString();
+    return out.split('\n').includes(`worktree ${worktree}`);
+  } catch {
+    return false;
+  }
+}
+
 function parseRateLimitSleep(output: string): number {
   const m = output.match(/resets\s+(\d+:\d+\s+[ap]m)/i);
   if (!m) return 3600;
@@ -67,7 +82,19 @@ async function setupWorktree(
 
   fs.mkdirSync(cfg.worktreesDir, { recursive: true });
 
-  if (!fileExists(worktreePath)) {
+  if (!isValidWorktree(cfg.repoPath, worktreePath)) {
+    // A stale dir and any orphaned devpod container bound to its old inode must
+    // both go before we recreate, or the rebuilt worktree will be shadowed by a
+    // reused container's stale bind mount.
+    if (fileExists(worktreePath)) {
+      try {
+        execFileSync('devpod', ['delete', `ticket-${name}`, '--force']);
+      } catch (err) {
+        log(`WARN: devpod delete failed for ticket-${name}: ${err}`);
+      }
+      fs.rmSync(worktreePath, { recursive: true, force: true });
+      execFileSync('git', ['-C', cfg.repoPath, 'worktree', 'prune']);
+    }
     execFileSync('git', ['-C', cfg.repoPath, 'worktree', 'add', worktreePath, '-B', `feat/ticket-${name}`]);
     log(`created worktree: ${worktreePath}`);
   } else {
@@ -96,6 +123,14 @@ async function cleanupWorktree(
     try {
       execFileSync('git', ['-C', cfg.repoPath, 'worktree', 'remove', worktree, '--force']);
       log(`removed worktree: ${worktree}`);
+      // Tear the devpod workspace down with the worktree so the container and
+      // its bind mount are never left bound to a deleted inode.
+      try {
+        execFileSync('devpod', ['delete', path.basename(worktree), '--force']);
+        log(`removed devpod workspace: ${path.basename(worktree)}`);
+      } catch (err) {
+        log(`WARN: devpod delete failed for ${path.basename(worktree)}: ${err}`);
+      }
     } catch (err) {
       log(`WARN: worktree remove failed: ${err}`);
     }
