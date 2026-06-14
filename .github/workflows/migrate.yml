@@ -16,7 +16,7 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: latest
-      - run: supabase link --project-ref yhjohodtdasgkdtjlfzt
+      - run: supabase link --project-ref bfukukrjapjimxnadwuv
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       - run: supabase db push
