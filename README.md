@@ -34,20 +34,36 @@ To get your Claude Code OAuth token from the macOS Keychain:
 security find-generic-password -s "CLAUDE_CODE_OAUTH_TOKEN" -w
 ```
 
-### 3. Configure DevPod global env vars for MCP servers (one-time, per machine)
+### 3. (Optional) Give a project access to MCP servers
 
-Agent containers have Notion and Plane MCP servers baked in. The servers read their API keys from environment variables injected by DevPod at workspace creation time. You must export these in your shell so DevPod can pick them up:
+Agent containers bake in **no** project-specific MCP servers. Instead, each target project declares the servers it wants in a `.mcp.json` at its repo root — Claude auto-discovers it, and the container is preconfigured to trust project-scoped servers (`enableAllProjectMcpServers`).
 
-```sh
-# Add to ~/.zshrc or ~/.bashrc
-export NOTION_API_KEY=your-notion-api-key
-export PLANE_API_KEY=your-plane-api-key
-export PLANE_WORKSPACE_SLUG=your-plane-workspace-slug
+Credentials flow from `~/.kbagent/.env` (host) into the container under the names each server expects. The host vars use a `KB_AGENT_` prefix; `remoteEnv` in `.devcontainer/devcontainer.json` maps each to the unprefixed name the server reads:
+
+| Host (`~/.kbagent/.env`) | In-container name | Used by |
+| --- | --- | --- |
+| `KB_AGENT_PLANE_API_KEY` | `PLANE_API_KEY` | Plane MCP |
+| `KB_AGENT_PLANE_WORKSPACE_SLUG` | `PLANE_WORKSPACE_SLUG` | Plane MCP |
+| `KB_AGENT_NOTION_API_KEY` | `NOTION_TOKEN` | Notion MCP |
+
+Because the container already exposes the native names, the project's `.mcp.json` needs no `env` block:
+
+```json
+{
+  "mcpServers": {
+    "plane": {
+      "command": "npx",
+      "args": ["-y", "@makeplane/plane-mcp-server"]
+    },
+    "notion": {
+      "command": "npx",
+      "args": ["-y", "@notionhq/notion-mcp-server"]
+    }
+  }
+}
 ```
 
-After adding them, reload your shell (`source ~/.zshrc`) and verify with `echo $NOTION_API_KEY`.
-
-> These values are also documented in `.env.example` for reference. They are read from the host shell environment by DevPod — they do not need to be in `~/.kbagent/.env`.
+To add a new server: put its key in `~/.kbagent/.env` as `KB_AGENT_<NAME>`, add a `remoteEnv` line mapping it to the name the server expects, and reference the server in the project's `.mcp.json`.
 
 ### 4. Add a kbagent.toml to each target project
 

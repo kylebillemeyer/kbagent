@@ -1,18 +1,15 @@
 {
   "name": "kbagent-agent",
-  "build": {
-    "dockerfile": "Dockerfile"
-  },
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
-  "postCreateCommand": "npm install -g @anthropic-ai/claude-code",
+  "postCreateCommand": "npm install -g @anthropic-ai/claude-code && mkdir -p ~/.claude && echo '{ \"enableAllProjectMcpServers\": true }' > ~/.claude/settings.json",
   "remoteEnv": {
     "CLAUDE_CODE_OAUTH_TOKEN": "${localEnv:KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN}",
     "GITHUB_TOKEN": "${localEnv:KB_AGENT_GITHUB_TOKEN}",
-    "KB_AGENT_PLANE_API_KEY": "${localEnv:KB_AGENT_PLANE_API_KEY}",
-    "NOTION_API_KEY": "${localEnv:NOTION_API_KEY}",
-    "PLANE_API_KEY": "${localEnv:PLANE_API_KEY}",
-    "PLANE_WORKSPACE_SLUG": "${localEnv:PLANE_WORKSPACE_SLUG}"
+    "PLANE_API_KEY": "${localEnv:KB_AGENT_PLANE_API_KEY}",
+    "PLANE_WORKSPACE_SLUG": "${localEnv:KB_AGENT_PLANE_WORKSPACE_SLUG}",
+    "NOTION_TOKEN": "${localEnv:KB_AGENT_NOTION_API_KEY}"
   }
 }
