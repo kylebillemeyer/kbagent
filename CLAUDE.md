@@ -1,100 +1,97 @@
 # kbagent
 
-Autonomous coding daemon for personal projects. Polls a ticket provider for ready tickets, creates a git worktree per ticket, runs Claude Code inside a Docker container to implement the ticket, and manages the full lifecycle: assessor on turn-limit, needs-input blocking, PR creation, and worktree cleanup.
+Autonomous coding daemon for personal projects. Polls a ticket provider for ready tickets, creates a git worktree per ticket, runs Claude Code inside a devcontainer (via devpod) to implement the ticket, and manages the full lifecycle: assessor on turn-limit, needs-input blocking, PR creation, and worktree cleanup.
 
 Designed to be project-agnostic via `kbagent.toml`. Each project keeps its own config file; `kbagent run` walks up from the current directory to find it.
+
+## Stack
+
+TypeScript on Node, CLI built with `commander`. Source in `src/`, compiled to `dist/` by `tsc`. The global `kbagent` binary is `package.json`'s `bin` → `./dist/index.js`, so **changes to `src/` only take effect after `npm run build`** (or run from source with `npm run dev`).
 
 ## Repo layout
 
 ```
 kbagent/
-├── main.go                      # entry point
-├── cmd/                         # cobra commands (one file per command)
-│   ├── root.go                  # root command, -f/--file flag
-│   ├── run.go                   # kbagent run — starts the daemon
-│   ├── build.go                 # kbagent build — builds Docker agent image
-│   ├── init.go                  # kbagent init — scaffolds a new project
-│   └── install_completion.go    # kbagent install-completion
-├── internal/
-│   ├── config/config.go         # config struct, TOML loading, walk-up discovery
-│   ├── daemon/daemon.go         # main loop, worktree management, status dispatch
-│   ├── agent/agent.go           # Docker invocation, prompt construction
+├── src/
+│   ├── index.ts              # entry point; commander CLI, wires provider → daemon
+│   ├── daemon.ts             # main loop, worktree + devpod lifecycle, status dispatch
+│   ├── agent.ts              # devpod invocation, prompt construction (Invoker)
+│   ├── config.ts             # Config type, kbagent.toml loading, ~/.kbagent/.env secrets
 │   └── provider/
-│       ├── provider.go          # Provider interface + New() factory
-│       ├── github.go            # GitHub Issues implementation (label-based)
-│       └── plane.go             # Plane.so implementation (state-based)
-├── kbagent.toml                 # this project's own config (uses Plane)
-├── kbagent.toml.example         # annotated reference config
-└── scripts/
-    ├── Dockerfile               # agent container image (golang:1.22-bookworm + claude)
-    └── entrypoint.sh            # configures gh auth before exec
+│       ├── provider.ts       # Provider interface (abstraction boundary)
+│       └── plane.ts          # Plane.so implementation (state-based) — the only provider
+├── dist/                     # tsc output; what the installed `kbagent` actually runs
+├── kbagent.toml              # this project's own config (uses Plane)
+├── kbagent.toml.example      # annotated reference config
+└── .devcontainer/
+    └── devcontainer.json     # agent container definition (javascript-node:20-bookworm)
 ```
 
 ## Key constraints
 
-- **macOS only** — credentials are read from the macOS Keychain via `security find-generic-password`. Do not add cross-platform credential support; it would complicate the UX without serving the actual user.
-- **Testing is required** — every new package or non-trivial function needs unit tests. Provider implementations need integration tests that hit a real API (no mocks). Tests run in CI via `go test ./...`.
-- **Provider interface is the abstraction boundary** — all ticket-system-specific knowledge (API calls, state IDs, label names) lives inside `internal/provider/`. The daemon and agent packages must never import ticket-system types or make ticket API calls directly.
-- **AGENT_STATUS.md format is a contract** — the daemon parses it by reading the first line as a status keyword (`needs-review`, `needs-input`, or `spec-approved`). Never change this format without updating both the agent prompt in `agent.go` and the parser in `daemon.go`.
-- **Docker mount strategy** — the daemon mounts `filepath.Dir(cfg.RepoPath)` (the parent of the repo) into the container at the same path. This is why worktrees (which live alongside the repo) are accessible inside the container. Do not change the mount point without auditing all worktree path construction.
+- **`dist/` is what runs** — the installed `kbagent` runs `dist/index.js`, not `src/`. Always `npm run build` after editing source, or test via `npm run dev` (tsx). `npm run lint` is `tsc --noEmit`.
+- **Provider interface is the abstraction boundary** — all ticket-system-specific knowledge (API calls, state IDs, priorities) lives inside `src/provider/`. `daemon.ts` and `agent.ts` must never import ticket-system types or make ticket API calls directly. Only Plane is implemented today; `index.ts` errors on any other `ticket_provider`.
+- **AGENT_STATUS.md format is a contract** — the daemon parses it by reading the first line as a status keyword (`needs-review`, `needs-input`, `spec-approved`). Never change this format without updating both the agent prompt in `agent.ts` and the parser (`applyStatus`) in `daemon.ts`.
+- **Worktree and devpod workspace are one unit** — they must be created and destroyed together. A worktree directory whose inode is replaced while a devpod container is still bound to it produces a stale/empty bind mount inside the container (the container freezes on the old, deleted inode). `setupWorktree` guards this with `isValidWorktree()` and `cleanupWorktree` tears the devpod workspace down alongside the worktree. See "Worktree + container lifecycle" below.
+- **macOS host** — the daemon and devpod run on macOS with Docker Desktop. The stale-bind-mount hazard above is specific to Docker Desktop's file sharing not re-resolving a running container's mount when the host path is replaced.
 
 ## Architecture
 
-### Daemon loop (`internal/daemon/daemon.go`)
+### Daemon loop (`src/daemon.ts`)
 
 ```
 for {
     pick ticket (resumable needs-input first, then next spec-approved)
-    setup worktree
+    setup worktree (+ devpod workspace)
     mark in-progress, write TICKET.md
     invoke_claude → output
     if rate-limited  → sleep until reset
     if turn-limit    → invoke_assessor → apply AGENT_STATUS.md
     if success       → apply AGENT_STATUS.md
-    cleanup worktree (remove if complete, leave if not)
+    cleanup worktree + devpod workspace (remove if complete, leave if not)
 }
 ```
 
-### Agent invocation (`internal/agent/agent.go`)
+**Session mode** is derived per run (`daemon.ts`): a pending human reply → `needs-input`; else an existing `AGENT_PLAN.md` → `continuing`; else `fresh`.
 
-`Invoker` builds prompts and runs `docker run`. Three session modes:
-- `fresh` — new ticket; agent writes AGENT_PLAN.md before touching code
-- `continuing` — resumed after turn-limit; agent reads AGENT_PLAN.md continuation note
-- `needs-input` — resumed after human reply; agent reads TICKET.md human replies section
+### Worktree + container lifecycle (`src/daemon.ts`)
 
-The assessor is a separate, lightweight session (max 10 turns) that decides progress vs. stuck and writes either `spec-approved` or `needs-input` to AGENT_STATUS.md.
+- `setupWorktree` — builds the path `${worktreesDir}/ticket-${name}`. It validates with `isValidWorktree()` (a `.git` file **and** the path present in `git worktree list --porcelain`), not mere directory existence. A stale dir that isn't a registered worktree is torn down — `devpod delete --force` the matching workspace, `rm -rf` the dir, `git worktree prune` — then re-added. This prevents reusing a directory whose inode no longer matches a running container's bind mount.
+- `cleanupWorktree` — on a completed ticket, `git worktree remove --force` then `devpod delete --force` the workspace (named `path.basename(worktree)`, which equals the `--id` used in `agent.ts`). If the session did not complete, both are left in place for the next run to resume.
 
-### Provider interface (`internal/provider/provider.go`)
+### Agent invocation (`src/agent.ts`)
 
-All providers must implement:
-- `CheckDeps()` — resolve credentials, validate connectivity
-- `FindNext(ctx)` — return highest-priority spec-approved ticket ID, or `""`
-- `FindResumable(ctx)` — return a needs-input ticket with a human reply, or `""`
-- `FetchTicket(ctx, id, worktree, mode)` — write `TICKET.md` into the worktree
-- `MarkInProgress / MarkNeedsInput / MarkNeedsReview / MarkSpecApproved`
-- `IsComplete(ctx, id)` — true if ticket is in final state (used for worktree cleanup)
-- `WorktreeName(ctx, id)` — string appended to `ticket-` to form the worktree directory name
+`Invoker` builds prompts and drives **devpod**:
+- `devpod up <worktree> --id <workspace> --ide none` brings the container up (workspace id = `path.basename(worktree)`).
+- The worktree is bind-mounted to `/workspaces/<workspace>` inside the container.
+- `.kbagent/prompt.md` and `.kbagent/run.sh` are written into the worktree; the agent runs via `devpod ssh <workspace> --command 'bash /workspaces/<workspace>/.kbagent/run.sh'`, which execs `claude -p "$PROMPT" --permission-mode bypassPermissions --max-turns <n>`.
 
-**GitHub provider** uses labels (`spec-approved`, `in-progress`, `needs-input`, `needs-review`) and `gh` CLI. Priority comes from `p0`–`p3` labels. `FindResumable` checks for ≥2 comments on needs-input issues — comment 1 is always the agent's blocker explanation, so ≥2 means a human has replied.
+Two session types:
+- **Agent** (`invokeClaude`) — `--max-turns` = `cfg.maxTurns` (default 50). Three modes: `fresh` (writes `AGENT_PLAN.md` before touching code), `continuing` (reads the plan's continuation note), `needs-input` (reads the TICKET.md human-replies section).
+- **Assessor** (`invokeAssessor`) — separate lightweight session, `--max-turns 10`. Runs on turn-limit to decide progress vs. stuck and write `spec-approved` or `needs-input` to `AGENT_STATUS.md`.
 
-**Plane provider** uses state UUIDs from config. Priority comes from Plane's native priority field (`urgent/high/medium/low`). Issues are identified internally by UUID; `WorktreeName` returns the `sequence_id` so worktree paths are predictable.
+### Provider interface (`src/provider/provider.ts`)
 
-### Config (`internal/config/config.go`)
+All providers implement:
+- `checkDeps()` — resolve credentials, validate connectivity
+- `findNext(signal)` — highest-priority spec-approved ticket id, or `""`
+- `findResumable(signal)` — a needs-input ticket with a human reply, or `""`
+- `fetchTicket(id, worktree, mode, signal)` — write `TICKET.md` into the worktree
+- `markInProgress / markNeedsInput / markNeedsReview / markSpecApproved`
+- `isComplete(id, signal)` — true if the ticket is in a final state (used for cleanup)
+- `worktreeName(id, signal)` — string appended to `ticket-` to form the worktree dir name
 
-`Load(cfgFile string)` walks up from cwd to find `kbagent.toml` if no explicit `-f` path is given. Config is loaded via viper; fields map to `DaemonConfig` and `ProviderConfig` structs.
+**Plane provider** (`src/provider/plane.ts`) uses state UUIDs from config. Priority comes from Plane's native priority field (`urgent/high/medium/low`). Tickets are identified by UUID; `worktreeName` returns the `sequence_id` so worktree paths are predictable (`ticket-<seq>`).
 
-**Keychain lookup convention** — `keychainGet(service, account)` maps to:
-```
-security find-generic-password -a <account> -s <service> -w
-```
-The daemon uses `account = cfg.Daemon.KeychainService`, `service = credential name` (e.g. `GITHUB_TOKEN`). Storage command:
-```
-security add-generic-password -a <keychain_service> -s GITHUB_TOKEN -w <value>
-```
+### Config (`src/config.ts`)
 
-### Commands (`cmd/`)
+Two sources:
+- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`, and a `[plane]` section (`workspace_slug`, `project_id`, and the `state_*` UUIDs). Optional with defaults: `ticket_provider` (`plane`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`.
+- **Secrets** — loaded via `dotenv` from `~/.kbagent/.env` (override the path with `-f/--file`). `KB_AGENT_PLANE_API_KEY` is required; `KB_AGENT_GITHUB_TOKEN` and `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` are optional and passed through to the container as env.
 
-Each command is one file. All commands use the `-f/--file` persistent flag (defined on `rootCmd`) for explicit config override. Adding a new command: create `cmd/newcmd.go`, call `rootCmd.AddCommand(newCmd)` in its `init()`.
+### Commands (`src/index.ts`)
+
+A single `commander` program. One command: `kbagent daemon` (alias `kbagent run`). The `-f/--file` option overrides the secrets-env path.
 
 ## Ticket workflow
 
@@ -143,8 +140,9 @@ git push --force-with-lease origin feat/ticket-N
 ## Development
 
 ```bash
-go build ./...   # must pass before opening a PR
-go test ./...    # must pass before opening a PR
+npm run build    # tsc → dist/ ; required before the global `kbagent` sees your changes
+npm run lint     # tsc --noEmit
+npm run dev      # run from source via tsx (no build step)
 ```
 
 Run the daemon from anywhere inside the repo — it walks up to find `kbagent.toml`:
@@ -152,7 +150,4 @@ Run the daemon from anywhere inside the repo — it walks up to find `kbagent.to
 kbagent run
 ```
 
-To test config loading without starting the daemon:
-```bash
-kbagent run --help
-```
+> Note: there is no automated test suite yet. `npm run build` / `npm run lint` are the only gates. Add tests alongside non-trivial logic as the project grows.
