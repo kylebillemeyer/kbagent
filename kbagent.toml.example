@@ -7,6 +7,11 @@ sleep_no_work   = 15
 sleep_error     = 300
 log_file        = "/Users/you/Library/Logs/kbagent.log"
 
+# This project's Supabase project URL (non-secret, project-specific).
+# The matching service-role key is a secret in ~/.kbagent/.env
+# (KB_AGENT_SUPABASE_SERVICE_ROLE_KEY).
+supabase_url    = "https://your-project.supabase.co"
+
 [plane]
 base_url       = "https://api.plane.so"
 workspace_slug = "your-workspace"
