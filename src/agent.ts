@@ -38,11 +38,17 @@ export class Invoker {
 
   private devpodUp(workspace: string, worktree: string): Promise<void> {
     return new Promise((resolve, reject) => {
+      // devcontainer.json resolves `${localEnv:KB_AGENT_*}` against this environment when
+      // the container is created. Pass the values from resolved config rather than relying
+      // on ambient env, so the container always gets this project's integration settings —
+      // kbagent.toml stays the single source of truth for anything also configured there.
       const proc = spawn('devpod', ['up', worktree, '--id', workspace, '--ide', 'none'], {
         env: {
           ...process.env,
           KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN: this.cfg.claudeOAuthToken,
           KB_AGENT_GITHUB_TOKEN: this.cfg.githubToken,
+          KB_AGENT_PLANE_API_KEY: this.cfg.planeApiKey,
+          KB_AGENT_PLANE_WORKSPACE_SLUG: this.cfg.plane.workspaceSlug,
         },
       });
       const onData = (data: Buffer) => {

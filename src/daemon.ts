@@ -254,7 +254,7 @@ export async function run(cfg: Config, p: Provider, signal: AbortSignal): Promis
 
   const inv = new Invoker(cfg, logStream);
 
-  log(`daemon started — provider: ${cfg.ticketProvider}`);
+  log(`daemon started — project: ${cfg.projectName}, provider: ${cfg.ticketProvider}`);
 
   try {
     for (;;) {

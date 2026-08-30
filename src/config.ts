@@ -16,6 +16,7 @@ export interface PlaneConfig {
 }
 
 export interface Config {
+  projectName: string;
   repoPath: string;
   worktreesDir: string;
   logFile: string;
@@ -31,6 +32,7 @@ export interface Config {
 }
 
 interface ProjectToml {
+  name?: string;
   repo_path: string;
   worktrees_dir: string;
   ticket_provider?: string;
@@ -51,11 +53,10 @@ interface ProjectToml {
   };
 }
 
-const GLOBAL_ENV_PATH = path.join(os.homedir(), '.kbagent', '.env');
+const KBAGENT_DIR = path.join(os.homedir(), '.kbagent');
+const GLOBAL_ENV_PATH = path.join(KBAGENT_DIR, '.env');
 
 export function loadConfig(globalEnvFile?: string): Config {
-  dotenv.config({ path: globalEnvFile ?? GLOBAL_ENV_PATH });
-
   const tomlPath = findTomlFile();
   const proj = parseToml(fs.readFileSync(tomlPath, 'utf8')) as unknown as ProjectToml;
 
@@ -71,7 +72,18 @@ export function loadConfig(globalEnvFile?: string): Config {
   if (!p.state_needs_input) throw new Error('kbagent.toml: plane.state_needs_input is required');
   if (!p.state_in_review) throw new Error('kbagent.toml: plane.state_in_review is required');
 
+  // Secrets load in layers, lowest precedence first: the global file holds
+  // account-scoped credentials (one Anthropic account), the project file holds
+  // integration-scoped ones (this project's Plane workspace, GitHub repos, Supabase
+  // project). Real environment variables outrank both. Values land in process.env so
+  // devcontainer.json's `${localEnv:KB_AGENT_*}` bindings resolve for this project.
+  const projectName = proj.name ?? path.basename(proj.repo_path);
+  const shellKeys = new Set(Object.keys(process.env));
+  applyEnvFile(globalEnvFile ?? GLOBAL_ENV_PATH, shellKeys);
+  applyEnvFile(path.join(KBAGENT_DIR, `${projectName}.env`), shellKeys);
+
   return {
+    projectName,
     repoPath: proj.repo_path,
     worktreesDir: proj.worktrees_dir,
     logFile: proj.log_file ?? path.join(os.homedir(), 'Library', 'Logs', 'kbagent.log'),
@@ -96,9 +108,27 @@ export function loadConfig(globalEnvFile?: string): Config {
   };
 }
 
+// Merge one secrets layer into process.env. A missing file is not an error — every
+// layer is optional. Keys already present in the real environment are left alone, so
+// an exported variable always wins; otherwise a later layer overrides an earlier one.
+function applyEnvFile(filePath: string, shellKeys: Set<string>): void {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch {
+    return;
+  }
+  for (const [key, value] of Object.entries(dotenv.parse(raw))) {
+    if (shellKeys.has(key)) continue;
+    process.env[key] = value;
+  }
+}
+
 function requireEnv(name: string): string {
   const val = process.env[name];
-  if (!val) throw new Error(`${name} is required but not set in ~/.kbagent/.env`);
+  if (!val) {
+    throw new Error(`${name} is required but not set in ~/.kbagent/.env or ~/.kbagent/<project>.env`);
+  }
   return val;
 }
 

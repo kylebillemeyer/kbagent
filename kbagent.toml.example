@@ -1,3 +1,6 @@
+# Identifies this project. Also selects its secrets file: ~/.kbagent/<name>.env
+# Defaults to the basename of repo_path when omitted.
+name            = "your-project"
 repo_path       = "/absolute/path/to/your-project"
 worktrees_dir   = "/absolute/path/to/your-project-worktrees"
 ticket_provider = "plane"

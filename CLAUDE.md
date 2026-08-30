@@ -86,8 +86,12 @@ All providers implement:
 ### Config (`src/config.ts`)
 
 Two sources:
-- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`, and a `[plane]` section (`workspace_slug`, `project_id`, and the `state_*` UUIDs). Optional with defaults: `ticket_provider` (`plane`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`.
-- **Secrets** — loaded via `dotenv` from `~/.kbagent/.env` (override the path with `-f/--file`). `KB_AGENT_PLANE_API_KEY` is required; `KB_AGENT_GITHUB_TOKEN` and `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` are optional and passed through to the container as env.
+- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`, and a `[plane]` section (`workspace_slug`, `project_id`, and the `state_*` UUIDs). Optional with defaults: `name` (basename of `repo_path`), `ticket_provider` (`plane`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`. Never holds secrets — it lives in the repo.
+- **Secrets** — layered, later layers winning: `~/.kbagent/.env` (override with `-f/--file`), then `~/.kbagent/<name>.env`, then real environment variables, which outrank both files. Each layer is optional and merged by `applyEnvFile`; values land in `process.env` so `devcontainer.json`'s `${localEnv:KB_AGENT_*}` bindings resolve. `KB_AGENT_PLANE_API_KEY` is required; `KB_AGENT_GITHUB_TOKEN` and `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` are optional and passed through to the container as env.
+
+**Credential scoping** — split the two files by what a credential is *scoped to*, not by how secret it is. `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` is tied to an Anthropic account, so it belongs in the global file. Everything else is tied to a specific integration instance — a Plane workspace, a set of GitHub repos, a Supabase project — and belongs in `~/.kbagent/<name>.env` as soon as two projects need different values. One credential covering every project (a single Plane workspace, a GitHub token spanning every repo) can stay global until that stops being true.
+
+Config values that identify an integration (`plane.workspace_slug`, `plane.project_id`) live in `kbagent.toml` only. `agent.ts` injects them into the devpod spawn environment from resolved config, so `${localEnv:...}` bindings pick up *this* project's values — never duplicate them into a secrets file.
 
 ### Commands (`src/index.ts`)
 
