@@ -95,11 +95,11 @@ export class PlaneProvider implements Provider {
 
   async findNext(signal: AbortSignal): Promise<string> {
     const issues = await this.listIssues(signal);
-    const { stateSpecApproved, stateInReview } = this.cfg.plane;
+    const { stateReady, stateInReview } = this.cfg.plane;
     const byId = new Map(issues.map((issue) => [issue.id, issue]));
 
     const eligible = issues.filter(
-      (issue) => issue.state === stateSpecApproved && PRIORITY_ORDER[issue.priority] !== undefined
+      (issue) => issue.state === stateReady && PRIORITY_ORDER[issue.priority] !== undefined
     );
     eligible.sort((a, b) => {
       const pa = PRIORITY_ORDER[a.priority];
@@ -223,8 +223,8 @@ export class PlaneProvider implements Provider {
     await this.setState(id, this.cfg.plane.stateInReview, signal);
   }
 
-  async markSpecApproved(id: string, signal: AbortSignal): Promise<void> {
-    await this.setState(id, this.cfg.plane.stateSpecApproved, signal);
+  async markReady(id: string, signal: AbortSignal): Promise<void> {
+    await this.setState(id, this.cfg.plane.stateReady, signal);
   }
 
   async isComplete(id: string, signal: AbortSignal): Promise<boolean> {

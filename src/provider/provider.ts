@@ -6,7 +6,7 @@ export interface Provider {
   markInProgress(id: string, signal: AbortSignal): Promise<void>;
   markNeedsInput(id: string, comment: string, signal: AbortSignal): Promise<void>;
   markNeedsReview(id: string, signal: AbortSignal): Promise<void>;
-  markSpecApproved(id: string, signal: AbortSignal): Promise<void>;
+  markReady(id: string, signal: AbortSignal): Promise<void>;
   isComplete(id: string, signal: AbortSignal): Promise<boolean>;
   worktreeName(id: string, signal: AbortSignal): Promise<string>;
 }

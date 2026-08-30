@@ -8,8 +8,7 @@ export interface PlaneConfig {
   baseUrl: string;
   workspaceSlug: string;
   projectId: string;
-  stateBacklog: string;
-  stateSpecApproved: string;
+  stateReady: string;
   stateInProgress: string;
   stateNeedsInput: string;
   stateInReview: string;
@@ -45,8 +44,7 @@ interface ProjectToml {
     base_url?: string;
     workspace_slug: string;
     project_id: string;
-    state_backlog?: string;
-    state_spec_approved: string;
+    state_ready: string;
     state_in_progress: string;
     state_needs_input: string;
     state_in_review: string;
@@ -67,7 +65,7 @@ export function loadConfig(globalEnvFile?: string): Config {
   const p = proj.plane;
   if (!p.workspace_slug) throw new Error('kbagent.toml: plane.workspace_slug is required');
   if (!p.project_id) throw new Error('kbagent.toml: plane.project_id is required');
-  if (!p.state_spec_approved) throw new Error('kbagent.toml: plane.state_spec_approved is required');
+  if (!p.state_ready) throw new Error('kbagent.toml: plane.state_ready is required');
   if (!p.state_in_progress) throw new Error('kbagent.toml: plane.state_in_progress is required');
   if (!p.state_needs_input) throw new Error('kbagent.toml: plane.state_needs_input is required');
   if (!p.state_in_review) throw new Error('kbagent.toml: plane.state_in_review is required');
@@ -96,8 +94,7 @@ export function loadConfig(globalEnvFile?: string): Config {
       baseUrl: p.base_url ?? 'https://api.plane.so',
       workspaceSlug: p.workspace_slug,
       projectId: p.project_id,
-      stateBacklog: p.state_backlog ?? '',
-      stateSpecApproved: p.state_spec_approved,
+      stateReady: p.state_ready,
       stateInProgress: p.state_in_progress,
       stateNeedsInput: p.state_needs_input,
       stateInReview: p.state_in_review,

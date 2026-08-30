@@ -164,7 +164,11 @@ TICKET.md's Spec section links to the parent product spec and, if present, a tec
 ${planInstructions}
 
 - Implement exactly what the task and acceptance criteria say, nothing more
-${validateLine}- If you hit an architectural decision not covered by the task, its linked spec(s), or CLAUDE.md:
+${validateLine}- Self-review before every push. Spawn a subagent to review your diff (\`git diff\` against
+  the branch point) for acceptance-criteria compliance, correctness bugs, and maintainability.
+  Address what it finds, then push. Do this for the initial push and every push after it —
+  no separate review pass runs on your PR, so this is the only review before a human sees it.
+- If you hit an architectural decision not covered by the task, its linked spec(s), or CLAUDE.md:
   Write AGENT_STATUS.md with exactly:
     needs-input
     <explain the decision, the options, and why you cannot proceed without input>
@@ -193,7 +197,7 @@ If PROGRESS — the remaining work is clear and completable:
        ## Assessor Continuation Note
        <2-3 sentences: what is done, what remains, where to start next>
   b. Write AGENT_STATUS.md with exactly:
-       spec-approved
+       ready
 
 If STUCK — the agent needs human input:
   a. Write AGENT_STATUS.md with exactly:

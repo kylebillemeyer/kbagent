@@ -167,9 +167,12 @@ async function applyStatus(
       log(`agent blocked — marking needs-input for ${ticketId}`);
       await p.markNeedsInput(ticketId, comment, signal).catch(() => {});
       break;
+    // 'spec-approved' is the pre-rename keyword, still accepted so a worktree left
+    // in flight by an older build resolves instead of falling through as unrecognized.
+    case 'ready':
     case 'spec-approved':
-      log(`assessor: progress — resetting ${ticketId} to spec-approved`);
-      await p.markSpecApproved(ticketId, signal).catch(() => {});
+      log(`assessor: progress — resetting ${ticketId} to ready`);
+      await p.markReady(ticketId, signal).catch(() => {});
       break;
     default:
       log(`WARN: unrecognized AGENT_STATUS.md status "${status}" for ${ticketId} — leaving ticket state unchanged`);

@@ -31,7 +31,7 @@ kbagent/
 
 - **`dist/` is what runs** — the installed `kbagent` runs `dist/index.js`, not `src/`. Always `npm run build` after editing source, or test via `npm run dev` (tsx). `npm run lint` is `tsc --noEmit`.
 - **Provider interface is the abstraction boundary** — all ticket-system-specific knowledge (API calls, state IDs, priorities) lives inside `src/provider/`. `daemon.ts` and `agent.ts` must never import ticket-system types or make ticket API calls directly. Only Plane is implemented today; `index.ts` errors on any other `ticket_provider`.
-- **AGENT_STATUS.md format is a contract** — the daemon parses it by reading the first line as a status keyword (`needs-review`, `needs-input`, `spec-approved`). Never change this format without updating both the agent prompt in `agent.ts` and the parser (`applyStatus`) in `daemon.ts`.
+- **AGENT_STATUS.md format is a contract** — the daemon parses it by reading the first line as a status keyword (`needs-review`, `needs-input`, `ready`). Never change this format without updating both the agent prompt in `agent.ts` and the parser (`applyStatus`) in `daemon.ts`.
 - **Worktree and devpod workspace are one unit** — they must be created and destroyed together. A worktree directory whose inode is replaced while a devpod container is still bound to it produces a stale/empty bind mount inside the container (the container freezes on the old, deleted inode). `setupWorktree` guards this with `isValidWorktree()` and `cleanupWorktree` tears the devpod workspace down alongside the worktree. See "Worktree + container lifecycle" below.
 - **macOS host** — the daemon and devpod run on macOS with Docker Desktop. The stale-bind-mount hazard above is specific to Docker Desktop's file sharing not re-resolving a running container's mount when the host path is replaced.
 
@@ -41,7 +41,7 @@ kbagent/
 
 ```
 for {
-    pick ticket (resumable needs-input first, then next spec-approved)
+    pick ticket (resumable needs-input first, then next ready)
     setup worktree (+ devpod workspace)
     mark in-progress, write TICKET.md
     invoke_claude → output
@@ -68,16 +68,16 @@ for {
 
 Two session types:
 - **Agent** (`invokeClaude`) — `--max-turns` = `cfg.maxTurns` (default 50). Three modes: `fresh` (writes `AGENT_PLAN.md` before touching code), `continuing` (reads the plan's continuation note), `needs-input` (reads the TICKET.md human-replies section).
-- **Assessor** (`invokeAssessor`) — separate lightweight session, `--max-turns 10`. Runs on turn-limit to decide progress vs. stuck and write `spec-approved` or `needs-input` to `AGENT_STATUS.md`.
+- **Assessor** (`invokeAssessor`) — separate lightweight session, `--max-turns 10`. Runs on turn-limit to decide progress vs. stuck and write `ready` or `needs-input` to `AGENT_STATUS.md`.
 
 ### Provider interface (`src/provider/provider.ts`)
 
 All providers implement:
 - `checkDeps()` — resolve credentials, validate connectivity
-- `findNext(signal)` — highest-priority spec-approved ticket id whose `blocked_by` relations (if any) are all resolved, or `""`
+- `findNext(signal)` — highest-priority **Ready** ticket id whose `blocked_by` relations (if any) are all resolved, or `""`
 - `findResumable(signal)` — a needs-input ticket with a human reply, or `""`
 - `fetchTicket(id, worktree, mode, signal)` — write `TICKET.md` into the worktree
-- `markInProgress / markNeedsInput / markNeedsReview / markSpecApproved`
+- `markInProgress / markNeedsInput / markNeedsReview / markReady`
 - `isComplete(id, signal)` — true if the ticket is in a final state (used for cleanup)
 - `worktreeName(id, signal)` — string appended to `ticket-` to form the worktree dir name
 
@@ -86,7 +86,7 @@ All providers implement:
 ### Config (`src/config.ts`)
 
 Two sources:
-- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`, and a `[plane]` section (`workspace_slug`, `project_id`, and the `state_*` UUIDs). Optional with defaults: `name` (basename of `repo_path`), `ticket_provider` (`plane`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`. Never holds secrets — it lives in the repo.
+- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`, and a `[plane]` section (`workspace_slug`, `project_id`, and the `state_*` UUIDs — `state_ready`, `state_in_progress`, `state_needs_input`, `state_in_review`; Backlog needs no key since kbagent never queries for it). Optional with defaults: `name` (basename of `repo_path`), `ticket_provider` (`plane`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`. Never holds secrets — it lives in the repo.
 - **Secrets** — layered, later layers winning: `~/.kbagent/.env` (override with `-f/--file`), then `~/.kbagent/<name>.env`, then real environment variables, which outrank both files. Each layer is optional and merged by `applyEnvFile`; values land in `process.env` so `devcontainer.json`'s `${localEnv:KB_AGENT_*}` bindings resolve. `KB_AGENT_PLANE_API_KEY` is required; `KB_AGENT_GITHUB_TOKEN` and `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` are optional and passed through to the container as env.
 
 **Credential scoping** — split the two files by what a credential is *scoped to*, not by how secret it is. `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` is tied to an Anthropic account, so it belongs in the global file. Everything else is tied to a specific integration instance — a Plane workspace, a set of GitHub repos, a Supabase project — and belongs in `~/.kbagent/<name>.env` as soon as two projects need different values. One credential covering every project (a single Plane workspace, a GitHub token spanning every repo) can stay global until that stops being true.
@@ -102,12 +102,16 @@ A single `commander` program. One command: `kbagent daemon` (alias `kbagent run`
 This project uses Plane (state-based):
 
 ```
-Backlog → Spec Approved → In Progress → In Review
-                               ↓
-                          Needs Input  (agent blocked, awaiting human reply)
+Backlog → Ready → In Progress → In Review → Done
+                       ↓
+                  Needs Input  (agent blocked, awaiting human reply)
 ```
 
-Agents pick up tickets in **Spec Approved** state, ordered by priority (urgent → high → medium → low). Tickets with no priority set are not picked up — always set a priority.
+Agents pick up tickets in **Ready** state, ordered by priority (urgent → high → medium → low). Tickets with no priority set are not picked up — always set a priority.
+
+**Stage meanings** — **Backlog**: the task exists but isn't cleared for an agent (still being scoped, or waiting on a spec). **Ready**: cleared for the queue — scoped, prioritized, blockers resolved. Spec approval is *not* what this stage tracks; that happens upstream in Notion before the ticket is written. **In Progress / Needs Input / In Review** are set by kbagent. **Done** means the PR merged; nothing sets it today (see below). Cancelled is available throughout.
+
+**Done is not yet automated.** `isComplete()` treats **In Review** as terminal for cleanup purposes, and no code moves a ticket to Done — that closes on merge once the event broker exists (KBAGENT-6), which is also the only thing that can observe a merge. Until then, close merged tickets by hand.
 
 **Tickets are scoped agent tasks, not specs.** Product spec → tech spec → task breakdown happens upstream (Notion), outside kbagent's write path. A ticket is one output of that breakdown: a single, independently-implementable unit of work. It carries what the agent needs to execute — not the reasoning behind it. The agent treats TICKET.md as its task, and only opens the linked spec doc(s) if the task or acceptance criteria are ambiguous.
 
@@ -126,7 +130,9 @@ One or two sentences: exactly what to build.
 
 Dependencies are **not** written in the body — set them as a native Plane `blocked by` relation on the ticket (Issue → Relations). `fetchTicket` reads the relation and appends a `## Blocked by` section (listing each blocker's `#<sequence_id>`) to the bottom of `TICKET.md` for the agent to see.
 
-**Dependency tracking** — `findNext` calls Plane's work-item relations endpoint (`GET .../work-items/{id}/relations/`) and skips any Spec Approved ticket with an unresolved `blocked_by` relation (the blocker hasn't reached **In Review**), so blocked work never enters the agent queue. Endpoint and response shape confirmed against `makeplane/plane` source (`apps/api/plane/api/views/issue.py` — note it's under `work-items/`, not the older `issues/` path).
+**Dependency tracking** — `findNext` calls Plane's work-item relations endpoint (`GET .../work-items/{id}/relations/`) and skips any Ready ticket with an unresolved `blocked_by` relation (the blocker hasn't reached **In Review**), so blocked work never enters the agent queue. Endpoint and response shape confirmed against `makeplane/plane` source (`apps/api/plane/api/views/issue.py` — note it's under `work-items/`, not the older `issues/` path).
+
+**Self-review before every push** — the session spawns a subagent to review its own diff (acceptance-criteria compliance, correctness, maintainability) and addresses the findings before pushing, on the initial push and every push after it. This is the only automated review a PR gets: there is deliberately no separate review-agent pass triggered by the PR itself, and PRs open ready for review rather than as drafts. The instruction lives in the agent prompt in `agent.ts`.
 
 **Needs-input protocol** — if you hit an architectural decision not covered by the task, its linked spec, or this file:
 1. Write `AGENT_STATUS.md`:
