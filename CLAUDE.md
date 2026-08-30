@@ -74,7 +74,7 @@ Two session types:
 
 All providers implement:
 - `checkDeps()` — resolve credentials, validate connectivity
-- `findNext(signal)` — highest-priority spec-approved ticket id, or `""`
+- `findNext(signal)` — highest-priority spec-approved ticket id whose `blocked_by` relations (if any) are all resolved, or `""`
 - `findResumable(signal)` — a needs-input ticket with a human reply, or `""`
 - `fetchTicket(id, worktree, mode, signal)` — write `TICKET.md` into the worktree
 - `markInProgress / markNeedsInput / markNeedsReview / markSpecApproved`
@@ -105,18 +105,26 @@ Backlog → Spec Approved → In Progress → In Review
 
 Agents pick up tickets in **Spec Approved** state, ordered by priority (urgent → high → medium → low). Tickets with no priority set are not picked up — always set a priority.
 
-**Ticket spec format** — every ticket body must have:
+**Tickets are scoped agent tasks, not specs.** Product spec → tech spec → task breakdown happens upstream (Notion), outside kbagent's write path. A ticket is one output of that breakdown: a single, independently-implementable unit of work. It carries what the agent needs to execute — not the reasoning behind it. The agent treats TICKET.md as its task, and only opens the linked spec doc(s) if the task or acceptance criteria are ambiguous.
+
+**Ticket format** — every ticket body must have:
 ```
-## What
-Plain description.
+## Task
+One or two sentences: exactly what to build.
+
+## Acceptance criteria
+- Concrete, checkable outcomes
 
 ## Spec
-- Which files this touches
-- Exact behavior / acceptance criteria
-- Any constraints
+- Product: <link>
+- Tech: <link>   (omit if this ticket has no tech spec)
 ```
 
-**Needs-input protocol** — if you hit an architectural decision not covered by the spec or this file:
+Dependencies are **not** written in the body — set them as a native Plane `blocked by` relation on the ticket (Issue → Relations). `fetchTicket` reads the relation and appends a `## Blocked by` section (listing each blocker's `#<sequence_id>`) to the bottom of `TICKET.md` for the agent to see.
+
+**Dependency tracking** — `findNext` calls Plane's work-item relations endpoint (`GET .../work-items/{id}/relations/`) and skips any Spec Approved ticket with an unresolved `blocked_by` relation (the blocker hasn't reached **In Review**), so blocked work never enters the agent queue. Endpoint and response shape confirmed against `makeplane/plane` source (`apps/api/plane/api/views/issue.py` — note it's under `work-items/`, not the older `issues/` path).
+
+**Needs-input protocol** — if you hit an architectural decision not covered by the task, its linked spec, or this file:
 1. Write `AGENT_STATUS.md`:
    ```
    needs-input
@@ -128,7 +136,7 @@ Plain description.
 
 **Branch from the dependency, not from main.**
 
-If a ticket is blocked by another, create the feature branch from the dependency's branch. A PR diff should only show work done for that ticket.
+If TICKET.md has a `## Blocked by` section (populated from the ticket's Plane relation), create the feature branch from the dependency's branch. A PR diff should only show work done for that ticket.
 
 After a dependency merges into main, rebase before review:
 ```bash

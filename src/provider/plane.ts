@@ -18,6 +18,19 @@ interface PlaneListResponse {
   results: PlaneIssue[];
 }
 
+interface PlaneRelationRef {
+  project_id: string;
+  issue_id: string;
+}
+
+// Response of GET .../work-items/{id}/relations/ — relations grouped by type.
+// Confirmed against makeplane/plane source (apps/api/plane/api/views/issue.py,
+// IssueRelationListCreateAPIEndpoint.get) — not on the older /issues/ path.
+interface PlaneRelationsResponse {
+  blocked_by: PlaneRelationRef[];
+  [relationType: string]: PlaneRelationRef[];
+}
+
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
 export class PlaneProvider implements Provider {
@@ -69,15 +82,25 @@ export class PlaneProvider implements Provider {
     await this.patchIssue(id, { state: stateId }, signal);
   }
 
+  private async getBlockedBy(id: string, signal: AbortSignal): Promise<PlaneRelationRef[]> {
+    const { projectId } = this.cfg.plane;
+    const data = await this.apiRequest(
+      'GET',
+      `/projects/${projectId}/work-items/${id}/relations/`,
+      undefined,
+      signal
+    ) as PlaneRelationsResponse;
+    return data.blocked_by ?? [];
+  }
+
   async findNext(signal: AbortSignal): Promise<string> {
     const issues = await this.listIssues(signal);
-    const { stateSpecApproved } = this.cfg.plane;
+    const { stateSpecApproved, stateInReview } = this.cfg.plane;
+    const byId = new Map(issues.map((issue) => [issue.id, issue]));
 
     const eligible = issues.filter(
       (issue) => issue.state === stateSpecApproved && PRIORITY_ORDER[issue.priority] !== undefined
     );
-    if (eligible.length === 0) return '';
-
     eligible.sort((a, b) => {
       const pa = PRIORITY_ORDER[a.priority];
       const pb = PRIORITY_ORDER[b.priority];
@@ -85,7 +108,33 @@ export class PlaneProvider implements Provider {
       return a.created_at < b.created_at ? -1 : 1;
     });
 
-    return eligible[0].id;
+    for (const issue of eligible) {
+      let blockedBy: PlaneRelationRef[];
+      try {
+        blockedBy = await this.getBlockedBy(issue.id, signal);
+      } catch {
+        continue; // can't verify dependencies right now — skip, retry next poll
+      }
+
+      let resolved = true;
+      for (const ref of blockedBy) {
+        let blocker = byId.get(ref.issue_id);
+        if (!blocker) {
+          try {
+            blocker = await this.getIssue(ref.issue_id, signal); // cross-project blocker
+          } catch {
+            resolved = false;
+            break;
+          }
+        }
+        if (blocker.state !== stateInReview) {
+          resolved = false;
+          break;
+        }
+      }
+      if (resolved) return issue.id;
+    }
+    return '';
   }
 
   async findResumable(signal: AbortSignal): Promise<string> {
@@ -119,6 +168,15 @@ export class PlaneProvider implements Provider {
     if (issue.external_id) content += `GitHub Issue: #${issue.external_id}\n`;
     content += `Priority: ${issue.priority}\n\n`;
     content += issue.description_stripped || '(no description)';
+
+    const blockedBy = await this.getBlockedBy(id, signal).catch(() => []);
+    if (blockedBy.length > 0) {
+      content += '\n\n---\n## Blocked by\n';
+      for (const ref of blockedBy) {
+        const blocker = await this.getIssue(ref.issue_id, signal).catch(() => null);
+        content += blocker ? `#${blocker.sequence_id}\n` : `${ref.issue_id}\n`;
+      }
+    }
 
     if (mode === 'needs-input') {
       content += '\n\n---\n## Human replies\n';

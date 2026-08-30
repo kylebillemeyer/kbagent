@@ -132,7 +132,7 @@ export class Invoker {
       default: // fresh
         preamble = 'Implement the ticket described in TICKET.md.';
         planInstructions = `Before writing any code:
-1. Create AGENT_PLAN.md at the worktree root with a task breakdown derived from the spec. Use this format:
+1. Create AGENT_PLAN.md at the worktree root with a task breakdown derived from TICKET.md. Use this format:
    ## Goal
    One sentence description.
    ## Tasks
@@ -152,12 +152,13 @@ export class Invoker {
     return `${preamble}
 
 Working directory: ${worktree}
-Read CLAUDE.md first for project context, then read TICKET.md for the full spec.
+Read CLAUDE.md first for project context, then read TICKET.md for your task and acceptance criteria.
+TICKET.md's Spec section links to the parent product spec and, if present, a tech spec — open one only if the task or acceptance criteria are ambiguous; don't treat TICKET.md itself as the full spec.
 
 ${planInstructions}
 
-- Implement exactly what the spec says, nothing more
-${validateLine}- If you hit an architectural decision not covered by the spec or CLAUDE.md:
+- Implement exactly what the task and acceptance criteria say, nothing more
+${validateLine}- If you hit an architectural decision not covered by the task, its linked spec(s), or CLAUDE.md:
   Write AGENT_STATUS.md with exactly:
     needs-input
     <explain the decision, the options, and why you cannot proceed without input>
@@ -178,7 +179,7 @@ Step 2 — review what the agent did:
   cat ${worktree}/AGENT_PLAN.md   (if it exists)
   git -C ${worktree} diff HEAD
 
-Step 3 — decide: is the agent making meaningful progress toward completing the spec,
+Step 3 — decide: is the agent making meaningful progress toward completing the task,
 or is it stuck (looping, confused, or blocked on something it cannot resolve alone)?
 
 If PROGRESS — the remaining work is clear and completable:
