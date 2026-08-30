@@ -105,7 +105,7 @@ Backlog → Spec Approved → In Progress → In Review
 
 Agents pick up tickets in **Spec Approved** state, ordered by priority (urgent → high → medium → low). Tickets with no priority set are not picked up — always set a priority.
 
-**Tickets are scoped agent tasks, not specs.** Product spec → tech spec → task breakdown happens upstream (Notion), outside kbagent's write path. A ticket is one output of that breakdown: a single, independently-implementable unit of work. It carries what the agent needs to execute — not the reasoning behind it. The agent treats TICKET.md as its task, and only opens the linked spec doc if the task or acceptance criteria are ambiguous.
+**Tickets are scoped agent tasks, not specs.** Product spec → tech spec → task breakdown happens upstream (Notion), outside kbagent's write path. A ticket is one output of that breakdown: a single, independently-implementable unit of work. It carries what the agent needs to execute — not the reasoning behind it. The agent treats TICKET.md as its task, and only opens the linked spec doc(s) if the task or acceptance criteria are ambiguous.
 
 **Ticket format** — every ticket body must have:
 ```
@@ -116,7 +116,8 @@ One or two sentences: exactly what to build.
 - Concrete, checkable outcomes
 
 ## Spec
-<link to the parent product/tech spec doc>
+- Product: <link>
+- Tech: <link>   (omit if this ticket has no tech spec)
 ```
 
 Dependencies are **not** written in the body — set them as a native Plane `blocked by` relation on the ticket (Issue → Relations). `fetchTicket` reads the relation and appends a `## Blocked by` section (listing each blocker's `#<sequence_id>`) to the bottom of `TICKET.md` for the agent to see.

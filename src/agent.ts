@@ -153,12 +153,12 @@ export class Invoker {
 
 Working directory: ${worktree}
 Read CLAUDE.md first for project context, then read TICKET.md for your task and acceptance criteria.
-TICKET.md links to the parent spec doc — open it only if the task or acceptance criteria are ambiguous; don't treat TICKET.md itself as the full spec.
+TICKET.md's Spec section links to the parent product spec and, if present, a tech spec — open one only if the task or acceptance criteria are ambiguous; don't treat TICKET.md itself as the full spec.
 
 ${planInstructions}
 
 - Implement exactly what the task and acceptance criteria say, nothing more
-${validateLine}- If you hit an architectural decision not covered by the task, its linked spec, or CLAUDE.md:
+${validateLine}- If you hit an architectural decision not covered by the task, its linked spec(s), or CLAUDE.md:
   Write AGENT_STATUS.md with exactly:
     needs-input
     <explain the decision, the options, and why you cannot proceed without input>
