@@ -20,6 +20,20 @@ interface PlaneListResponse {
 
 const PRIORITY_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 };
 
+// Tickets declare dependencies as `## Blocked by` + `#<sequence_id>` lines in the body
+// (see CLAUDE.md — Ticket workflow). Not a Plane relation field: that API surface isn't
+// confirmed available, so this stays a body convention resolved against sequence_id.
+function parseBlockedBy(description: string): number[] {
+  const section = description.match(/^## Blocked by\s*\n([\s\S]*?)(?:\n## |$)/mi);
+  if (!section) return [];
+  const refs: number[] = [];
+  for (const line of section[1].split('\n')) {
+    const m = line.match(/#(\d+)/);
+    if (m) refs.push(Number(m[1]));
+  }
+  return refs;
+}
+
 export class PlaneProvider implements Provider {
   private cfg: Config;
   private apiKey = '';
@@ -71,11 +85,15 @@ export class PlaneProvider implements Provider {
 
   async findNext(signal: AbortSignal): Promise<string> {
     const issues = await this.listIssues(signal);
-    const { stateSpecApproved } = this.cfg.plane;
+    const { stateSpecApproved, stateInReview } = this.cfg.plane;
+    const bySequence = new Map(issues.map((issue) => [issue.sequence_id, issue]));
 
-    const eligible = issues.filter(
-      (issue) => issue.state === stateSpecApproved && PRIORITY_ORDER[issue.priority] !== undefined
-    );
+    const eligible = issues.filter((issue) => {
+      if (issue.state !== stateSpecApproved) return false;
+      if (PRIORITY_ORDER[issue.priority] === undefined) return false;
+      const blockedBy = parseBlockedBy(issue.description_stripped || '');
+      return blockedBy.every((seq) => bySequence.get(seq)?.state === stateInReview);
+    });
     if (eligible.length === 0) return '';
 
     eligible.sort((a, b) => {
