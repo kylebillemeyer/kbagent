@@ -42,6 +42,22 @@ jobs:
       # installing explicitly means an image change fails here instead of mysteriously.
       - run: sudo apt-get install -y --no-install-recommends postgresql-client
       - run: npm ci
+
+      # ui/ is a separate manifest with its own dependency tree — Vercel's root
+      # directory — and is deliberately absent from the root package.json, so the
+      # globally installed `kbagent` binary never pulls in Next.
+      - run: npm ci
+        working-directory: ui
+      - run: npm run typecheck
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      # Route handlers against a scratch database on the service container below.
+      - run: npm test
+        working-directory: ui
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+
       - run: npm run test:db
         env:
           DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
