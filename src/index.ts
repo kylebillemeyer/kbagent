@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
 import { loadConfig } from './config';
-import { PlaneProvider } from './provider/plane';
+import { NativeProvider } from './provider/native';
 import { run } from './daemon';
 
 const program = new Command();
@@ -26,8 +26,8 @@ program
     }
 
     let provider;
-    if (cfg.ticketProvider === 'plane') {
-      provider = new PlaneProvider(cfg);
+    if (cfg.ticketProvider === 'native') {
+      provider = new NativeProvider(cfg);
     } else {
       console.error(`unknown ticket provider: ${cfg.ticketProvider}`);
       process.exit(1);

@@ -40,15 +40,16 @@ export class Invoker {
     return new Promise((resolve, reject) => {
       // devcontainer.json resolves `${localEnv:KB_AGENT_*}` against this environment when
       // the container is created. Pass the values from resolved config rather than relying
-      // on ambient env, so the container always gets this project's integration settings —
-      // kbagent.toml stays the single source of truth for anything also configured there.
+      // on ambient env, so the container always gets this project's credentials.
+      //
+      // No ticket-store credential is passed in: the agent reads its task from TICKET.md
+      // and answers through AGENT_STATUS.md, both written by the daemon on the host. The
+      // daemon is the only thing that talks to the ticket database.
       const proc = spawn('devpod', ['up', worktree, '--id', workspace, '--ide', 'none'], {
         env: {
           ...process.env,
           KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN: this.cfg.claudeOAuthToken,
           KB_AGENT_GITHUB_TOKEN: this.cfg.githubToken,
-          KB_AGENT_PLANE_API_KEY: this.cfg.planeApiKey,
-          KB_AGENT_PLANE_WORKSPACE_SLUG: this.cfg.plane.workspaceSlug,
         },
       });
       const onData = (data: Buffer) => {

@@ -47,7 +47,7 @@ function isValidWorktree(repoPath: string, worktree: string): boolean {
   }
 }
 
-function parseRateLimitSleep(output: string): number {
+export function parseRateLimitSleep(output: string): number {
   const m = output.match(/resets\s+(\d+:\d+\s+[ap]m)/i);
   if (!m) return 3600;
   const match = m[1].toUpperCase();
@@ -63,11 +63,25 @@ function parseRateLimitSleep(output: string): number {
   return Math.round((reset.getTime() - now.getTime()) / 1000);
 }
 
-async function pickTicket(p: Provider, signal: AbortSignal): Promise<{ id: string; needsInput: boolean }> {
-  const resumable = await p.findResumable(signal);
-  if (resumable) return { id: resumable, needsInput: true };
-  const next = await p.findNext(signal);
-  return { id: next, needsInput: false };
+export type SessionMode = 'fresh' | 'continuing' | 'needs-input';
+
+// With one queue and one trigger — a human moving the ticket back to Ready — the
+// ticket system can no longer say *why* the previous session stopped, so the worktree
+// answers instead. An AGENT_STATUS.md still reading `needs-input` is the agent's own
+// record that it stopped on a question; an AGENT_PLAN.md without one means a session
+// ran and was cut short (turn limit). Neither means nothing has run here yet.
+//
+// Must be called before processTicket deletes the stale AGENT_STATUS.md.
+export function deriveSessionMode(worktree: string): SessionMode {
+  let status = '';
+  try {
+    status = fs.readFileSync(path.join(worktree, 'AGENT_STATUS.md'), 'utf8').trim().split('\n')[0].trim();
+  } catch {
+    // no status file — fall through to the plan check
+  }
+  if (status === 'needs-input') return 'needs-input';
+  if (fileExists(path.join(worktree, 'AGENT_PLAN.md'))) return 'continuing';
+  return 'fresh';
 }
 
 async function setupWorktree(
@@ -139,7 +153,7 @@ async function cleanupWorktree(
   }
 }
 
-async function applyStatus(
+export async function applyStatus(
   ticketId: string,
   worktree: string,
   p: Provider,
@@ -167,10 +181,7 @@ async function applyStatus(
       log(`agent blocked — marking needs-input for ${ticketId}`);
       await p.markNeedsInput(ticketId, comment, signal).catch(() => {});
       break;
-    // 'spec-approved' is the pre-rename keyword, still accepted so a worktree left
-    // in flight by an older build resolves instead of falling through as unrecognized.
     case 'ready':
-    case 'spec-approved':
       log(`assessor: progress — resetting ${ticketId} to ready`);
       await p.markReady(ticketId, signal).catch(() => {});
       break;
@@ -185,7 +196,6 @@ async function processTicket(
   inv: Invoker,
   log: (msg: string) => void,
   ticketId: string,
-  needsInput: boolean,
   signal: AbortSignal
 ): Promise<void> {
   let worktree: string;
@@ -198,11 +208,7 @@ async function processTicket(
   }
 
   try {
-    const mode = needsInput
-      ? 'needs-input'
-      : fileExists(path.join(worktree, 'AGENT_PLAN.md'))
-      ? 'continuing'
-      : 'fresh';
+    const mode = deriveSessionMode(worktree);
 
     try {
       await p.markInProgress(ticketId, signal);
@@ -262,9 +268,8 @@ export async function run(cfg: Config, p: Provider, signal: AbortSignal): Promis
   try {
     for (;;) {
       let id: string;
-      let needsInput: boolean;
       try {
-        ({ id, needsInput } = await pickTicket(p, signal));
+        id = await p.findNext(signal);
       } catch (err) {
         if (signal.aborted) return;
         log(`ERROR: pick ticket: ${err}`);
@@ -282,14 +287,10 @@ export async function run(cfg: Config, p: Provider, signal: AbortSignal): Promis
         continue;
       }
 
-      if (needsInput) {
-        log(`resuming ticket ${id} (human replied to needs-input)`);
-      } else {
-        log(`picked up ticket ${id}`);
-      }
+      log(`picked up ticket ${id}`);
 
       try {
-        await processTicket(cfg, p, inv, log, id, needsInput, signal);
+        await processTicket(cfg, p, inv, log, id, signal);
       } catch (err) {
         if (signal.aborted) return;
         log(`ERROR: processTicket ${id}: ${err}`);
