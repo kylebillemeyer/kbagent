@@ -5,6 +5,21 @@ import type { Config } from './config';
 import type { Provider } from './provider/provider';
 import { Invoker, extractClosesRef } from './agent';
 
+/**
+ * The daemon loop and the worktree lifecycle around it.
+ *
+ * `run` polls the provider for one ready ticket at a time and hands each to
+ * `processTicket`, which sets up a worktree, invokes the agent inside it, applies
+ * whatever the agent reported, and tears the worktree back down. Everything else in
+ * this module is a step of that cycle.
+ *
+ * The two things worth knowing before editing: a worktree and its devpod workspace
+ * are one unit and must be created and destroyed together (see `setupWorktree`), and
+ * `AGENT_STATUS.md`'s first line is a contract shared with the prompt in `agent.ts`
+ * (see `applyStatus`).
+ */
+
+/** Write one timestamped line to both stdout and the log file. */
 function logf(logStream: fs.WriteStream, format: string, ...args: unknown[]): void {
   const msg = format.replace(/%s/g, () => String(args.shift()));
   const line = `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] ${msg}\n`;
@@ -12,6 +27,7 @@ function logf(logStream: fs.WriteStream, format: string, ...args: unknown[]): vo
   logStream.write(line);
 }
 
+/** Sleep, rejecting immediately if the abort signal fires (so Ctrl-C is not swallowed). */
 function sleep(seconds: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return Promise.reject(new Error('aborted'));
   return new Promise((resolve, reject) => {
@@ -23,6 +39,7 @@ function sleep(seconds: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/** Whether a path exists at all — not whether it is a file, a directory, or usable. */
 function fileExists(p: string): boolean {
   try {
     fs.statSync(p);
@@ -32,6 +49,10 @@ function fileExists(p: string): boolean {
   }
 }
 
+/**
+ * Whether `worktree` is a git worktree this repo actually knows about: a `.git` file
+ * plus an entry in `git worktree list`. Mere directory existence is not enough.
+ */
 // A directory can exist at the worktree path without being a registered git
 // worktree (e.g. left behind as plain scaffolding after a prior `worktree
 // remove`). Treating such a stale dir as reusable both skips `worktree add`
@@ -47,6 +68,11 @@ function isValidWorktree(repoPath: string, worktree: string): boolean {
   }
 }
 
+/**
+ * Seconds to sleep from a Claude rate-limit message such as "resets 3:45pm", rolling
+ * over to tomorrow when that time has already passed today. Falls back to an hour when
+ * the message has no time in it.
+ */
 export function parseRateLimitSleep(output: string): number {
   const m = output.match(/resets\s+(\d+:\d+\s+[ap]m)/i);
   if (!m) return 3600;
@@ -65,6 +91,10 @@ export function parseRateLimitSleep(output: string): number {
 
 export type SessionMode = 'fresh' | 'continuing' | 'needs-input';
 
+/**
+ * Which of the three agent prompt modes this run should use, inferred from what a
+ * previous session left behind in the worktree.
+ */
 // With one queue and one trigger — a human moving the ticket back to Ready — the
 // ticket system can no longer say *why* the previous session stopped, so the worktree
 // answers instead. An AGENT_STATUS.md still reading `needs-input` is the agent's own
@@ -84,6 +114,12 @@ export function deriveSessionMode(worktree: string): SessionMode {
   return 'fresh';
 }
 
+/**
+ * Return the worktree path for a ticket, creating it if needed. A directory that
+ * exists but is not a registered worktree is torn down first — along with any devpod
+ * workspace still bound to its old inode — because reusing it would leave the
+ * container mounted on a deleted directory.
+ */
 async function setupWorktree(
   cfg: Config,
   log: (msg: string) => void,
@@ -117,6 +153,11 @@ async function setupWorktree(
   return worktreePath;
 }
 
+/**
+ * Tear down the worktree and its devpod workspace, but only if the ticket reached a
+ * terminal stage. An unfinished session keeps both so the next run can resume in
+ * place; the two are always removed together.
+ */
 async function cleanupWorktree(
   cfg: Config,
   log: (msg: string) => void,
@@ -153,6 +194,15 @@ async function cleanupWorktree(
   }
 }
 
+/**
+ * Read `AGENT_STATUS.md` and move the ticket to the stage its first line asks for.
+ *
+ * That first line is a contract with the prompt in `agent.ts`: `needs-review`,
+ * `needs-input`, or `ready`. Anything after it is the agent's explanation, posted as a
+ * comment when it is blocked. An unrecognized keyword or a missing file leaves the
+ * ticket where it is rather than guessing — changing this parser means changing the
+ * prompt too.
+ */
 export async function applyStatus(
   ticketId: string,
   worktree: string,
@@ -190,6 +240,15 @@ export async function applyStatus(
   }
 }
 
+/**
+ * Take one ticket from pickup to teardown: set up the worktree, mark it in progress,
+ * write `TICKET.md`, run the agent, and apply the result.
+ *
+ * Three outcomes get special handling. A rate limit sleeps until the quota resets and
+ * leaves the ticket untouched. A turn limit spawns the assessor, which decides whether
+ * the work is progressing or stuck and writes the status file itself. An agent that
+ * exits non-zero leaves the ticket in progress and backs off.
+ */
 async function processTicket(
   cfg: Config,
   p: Provider,
@@ -256,6 +315,13 @@ async function processTicket(
   }
 }
 
+/**
+ * The daemon loop: pick a ticket, process it, repeat; sleep when the queue is empty.
+ *
+ * Strictly sequential — one ticket at a time, one process per project. Errors from
+ * picking or processing are logged and backed off rather than fatal, so a transient
+ * database or devpod failure does not stop the daemon. Only an abort ends it.
+ */
 export async function run(cfg: Config, p: Provider, signal: AbortSignal): Promise<void> {
   fs.mkdirSync(path.dirname(cfg.logFile), { recursive: true });
   const logStream = fs.createWriteStream(cfg.logFile, { flags: 'a' });
