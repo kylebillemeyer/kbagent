@@ -8,14 +8,14 @@ export interface PlaneConfig {
   baseUrl: string;
   workspaceSlug: string;
   projectId: string;
-  stateBacklog: string;
-  stateSpecApproved: string;
+  stateReady: string;
   stateInProgress: string;
   stateNeedsInput: string;
   stateInReview: string;
 }
 
 export interface Config {
+  projectName: string;
   repoPath: string;
   worktreesDir: string;
   logFile: string;
@@ -31,6 +31,7 @@ export interface Config {
 }
 
 interface ProjectToml {
+  name?: string;
   repo_path: string;
   worktrees_dir: string;
   ticket_provider?: string;
@@ -43,19 +44,17 @@ interface ProjectToml {
     base_url?: string;
     workspace_slug: string;
     project_id: string;
-    state_backlog?: string;
-    state_spec_approved: string;
+    state_ready: string;
     state_in_progress: string;
     state_needs_input: string;
     state_in_review: string;
   };
 }
 
-const GLOBAL_ENV_PATH = path.join(os.homedir(), '.kbagent', '.env');
+const KBAGENT_DIR = path.join(os.homedir(), '.kbagent');
+const GLOBAL_ENV_PATH = path.join(KBAGENT_DIR, '.env');
 
 export function loadConfig(globalEnvFile?: string): Config {
-  dotenv.config({ path: globalEnvFile ?? GLOBAL_ENV_PATH });
-
   const tomlPath = findTomlFile();
   const proj = parseToml(fs.readFileSync(tomlPath, 'utf8')) as unknown as ProjectToml;
 
@@ -66,12 +65,23 @@ export function loadConfig(globalEnvFile?: string): Config {
   const p = proj.plane;
   if (!p.workspace_slug) throw new Error('kbagent.toml: plane.workspace_slug is required');
   if (!p.project_id) throw new Error('kbagent.toml: plane.project_id is required');
-  if (!p.state_spec_approved) throw new Error('kbagent.toml: plane.state_spec_approved is required');
+  if (!p.state_ready) throw new Error('kbagent.toml: plane.state_ready is required');
   if (!p.state_in_progress) throw new Error('kbagent.toml: plane.state_in_progress is required');
   if (!p.state_needs_input) throw new Error('kbagent.toml: plane.state_needs_input is required');
   if (!p.state_in_review) throw new Error('kbagent.toml: plane.state_in_review is required');
 
+  // Secrets load in layers, lowest precedence first: the global file holds
+  // account-scoped credentials (one Anthropic account), the project file holds
+  // integration-scoped ones (this project's Plane workspace, GitHub repos, Supabase
+  // project). Real environment variables outrank both. Values land in process.env so
+  // devcontainer.json's `${localEnv:KB_AGENT_*}` bindings resolve for this project.
+  const projectName = proj.name ?? path.basename(proj.repo_path);
+  const shellKeys = new Set(Object.keys(process.env));
+  applyEnvFile(globalEnvFile ?? GLOBAL_ENV_PATH, shellKeys, globalEnvFile !== undefined);
+  applyEnvFile(path.join(KBAGENT_DIR, `${projectName}.env`), shellKeys);
+
   return {
+    projectName,
     repoPath: proj.repo_path,
     worktreesDir: proj.worktrees_dir,
     logFile: proj.log_file ?? path.join(os.homedir(), 'Library', 'Logs', 'kbagent.log'),
@@ -84,8 +94,7 @@ export function loadConfig(globalEnvFile?: string): Config {
       baseUrl: p.base_url ?? 'https://api.plane.so',
       workspaceSlug: p.workspace_slug,
       projectId: p.project_id,
-      stateBacklog: p.state_backlog ?? '',
-      stateSpecApproved: p.state_spec_approved,
+      stateReady: p.state_ready,
       stateInProgress: p.state_in_progress,
       stateNeedsInput: p.state_needs_input,
       stateInReview: p.state_in_review,
@@ -96,9 +105,35 @@ export function loadConfig(globalEnvFile?: string): Config {
   };
 }
 
+// Merge one secrets layer into process.env. Keys already present in the real
+// environment are left alone, so an exported variable always wins; otherwise a later
+// layer overrides an earlier one.
+//
+// The default layers are optional, so a missing file is not an error. A path the user
+// typed with -f is not: silently ignoring a typo there would start the agent with an
+// empty token and fail much further downstream. Errors other than "not found" always
+// throw — an unreadable ~/.kbagent/.env would otherwise surface as the misleading
+// "KB_AGENT_PLANE_API_KEY is required".
+function applyEnvFile(filePath: string, shellKeys: Set<string>, required = false): void {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(filePath, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' && !required) return;
+    throw new Error(`cannot read credentials file ${filePath}: ${code ?? err}`);
+  }
+  for (const [key, value] of Object.entries(dotenv.parse(raw))) {
+    if (shellKeys.has(key)) continue;
+    process.env[key] = value;
+  }
+}
+
 function requireEnv(name: string): string {
   const val = process.env[name];
-  if (!val) throw new Error(`${name} is required but not set in ~/.kbagent/.env`);
+  if (!val) {
+    throw new Error(`${name} is required but not set in ~/.kbagent/.env or ~/.kbagent/<project>.env`);
+  }
   return val;
 }
 
