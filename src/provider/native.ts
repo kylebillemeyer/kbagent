@@ -7,6 +7,7 @@ import postgres from 'postgres';
 import type { Config } from '../config';
 import type { Provider } from './provider';
 import { priorities, ticketBlockers, ticketComments, tickets, workspaces } from '../db/schema';
+import { poolerOptions } from '../db/connection';
 
 /**
  * Stages at which a ticket's work is out of the agent's hands: the branch exists and
@@ -32,10 +33,11 @@ export class NativeProvider implements Provider {
   constructor(cfg: Config) {
     this.cfg = cfg;
     // postgres.js opens no socket until the first query, so constructing here is free.
-    // `prepare: false` is required to survive Supabase's transaction-mode pooler, which
-    // hands a different backend to each transaction and so cannot keep prepared
-    // statements; `max` is small because the daemon runs one ticket at a time.
-    this.client = postgres(cfg.databaseUrl, { max: 2, prepare: false });
+    // poolerOptions strips the two Prisma-convention parameters Supabase's pooler URI
+    // carries and turns them into client options — passed through, postgres.js forwards
+    // them as startup parameters and the connection is refused outright.
+    const { url, prepare, max } = poolerOptions(cfg.databaseUrl);
+    this.client = postgres(url, { max, prepare });
     this.db = drizzle(this.client);
   }
 

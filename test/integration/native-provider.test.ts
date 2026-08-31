@@ -104,6 +104,26 @@ function newWorktree(): string {
 
 // --------------------------------------------------------------- checkDeps ---
 
+describe('pooler connection string', () => {
+  // Supabase hands out the pooler URI carrying ?pgbouncer=true&connection_limit=1.
+  // postgres.js forwards unrecognised query parameters to the server as startup
+  // parameters, so passing that URI through unmodified is refused outright with
+  // `unrecognized configuration parameter "pgbouncer"` — no connection at all.
+  // This is the regression test for that: it must connect, not just parse.
+  it('connects when KB_AGENT_DATABASE_URL carries the Prisma-convention parameters', async () => {
+    const url = new URL(DB_URL!);
+    url.searchParams.set('pgbouncer', 'true');
+    url.searchParams.set('connection_limit', '1');
+
+    const slug = await newWorkspace();
+    const p = new NativeProvider({ ...testConfig(slug), databaseUrl: url.href });
+    providers.push(p);
+
+    await p.checkDeps();
+    assert.equal(await p.findNext(SIGNAL), '');
+  });
+});
+
 describe('checkDeps', () => {
   it('resolves the workspace whose slug matches the project name', async () => {
     const slug = await newWorkspace();
