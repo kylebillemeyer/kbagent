@@ -77,7 +77,7 @@ export function loadConfig(globalEnvFile?: string): Config {
   // devcontainer.json's `${localEnv:KB_AGENT_*}` bindings resolve for this project.
   const projectName = proj.name ?? path.basename(proj.repo_path);
   const shellKeys = new Set(Object.keys(process.env));
-  applyEnvFile(globalEnvFile ?? GLOBAL_ENV_PATH, shellKeys);
+  applyEnvFile(globalEnvFile ?? GLOBAL_ENV_PATH, shellKeys, globalEnvFile !== undefined);
   applyEnvFile(path.join(KBAGENT_DIR, `${projectName}.env`), shellKeys);
 
   return {
@@ -105,15 +105,23 @@ export function loadConfig(globalEnvFile?: string): Config {
   };
 }
 
-// Merge one secrets layer into process.env. A missing file is not an error — every
-// layer is optional. Keys already present in the real environment are left alone, so
-// an exported variable always wins; otherwise a later layer overrides an earlier one.
-function applyEnvFile(filePath: string, shellKeys: Set<string>): void {
+// Merge one secrets layer into process.env. Keys already present in the real
+// environment are left alone, so an exported variable always wins; otherwise a later
+// layer overrides an earlier one.
+//
+// The default layers are optional, so a missing file is not an error. A path the user
+// typed with -f is not: silently ignoring a typo there would start the agent with an
+// empty token and fail much further downstream. Errors other than "not found" always
+// throw — an unreadable ~/.kbagent/.env would otherwise surface as the misleading
+// "KB_AGENT_PLANE_API_KEY is required".
+function applyEnvFile(filePath: string, shellKeys: Set<string>, required = false): void {
   let raw: string;
   try {
     raw = fs.readFileSync(filePath, 'utf8');
-  } catch {
-    return;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' && !required) return;
+    throw new Error(`cannot read credentials file ${filePath}: ${code ?? err}`);
   }
   for (const [key, value] of Object.entries(dotenv.parse(raw))) {
     if (shellKeys.has(key)) continue;

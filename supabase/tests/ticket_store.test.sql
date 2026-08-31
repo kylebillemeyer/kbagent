@@ -87,7 +87,10 @@ BEGIN
   PERFORM pg_temp.assert(t.stage_id = 'backlog',  'new tickets default to backlog');
   PERFORM pg_temp.assert(t.priority_id = 'medium','new tickets default to medium priority');
   PERFORM pg_temp.assert(t.body = '',             'body defaults to empty string, not null');
-  PERFORM pg_temp.assert(t.created_at IS NOT NULL AND t.updated_at IS NOT NULL,
+  -- NOT NULL alone would make an IS NOT NULL check unfalsifiable: a missing default
+  -- aborts the fixture INSERT above before this runs. Check the value instead.
+  PERFORM pg_temp.assert(t.created_at > now() - interval '1 minute'
+                     AND t.updated_at > now() - interval '1 minute',
     'timestamps default to now()');
 END $$;
 

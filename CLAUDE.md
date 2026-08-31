@@ -16,10 +16,18 @@ kbagent/
 │   ├── index.ts              # entry point; commander CLI, wires provider → daemon
 │   ├── daemon.ts             # main loop, worktree + devpod lifecycle, status dispatch
 │   ├── agent.ts              # devpod invocation, prompt construction (Invoker)
-│   ├── config.ts             # Config type, kbagent.toml loading, ~/.kbagent/.env secrets
+│   ├── config.ts             # Config type, kbagent.toml loading, layered env secrets
+│   ├── db/
+│   │   └── schema.ts         # Drizzle mirror of the SQL migrations (query-only)
 │   └── provider/
 │       ├── provider.ts       # Provider interface (abstraction boundary)
 │       └── plane.ts          # Plane.so implementation (state-based) — the only provider
+├── scripts/
+│   ├── test-migrations.sh    # `npm run test:db`
+│   └── introspect.sql        # normalized schema dump, for comparing two databases
+├── supabase/
+│   ├── migrations/           # authoritative schema; CI applies these on push to main
+│   └── tests/                # SQL assertions run by test-migrations.sh
 ├── dist/                     # tsc output; what the installed `kbagent` actually runs
 ├── kbagent.toml              # this project's own config (uses Plane)
 ├── kbagent.toml.example      # annotated reference config
@@ -86,7 +94,7 @@ All providers implement:
 ### Config (`src/config.ts`)
 
 Two sources:
-- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`, and a `[plane]` section (`workspace_slug`, `project_id`, and the `state_*` UUIDs — `state_ready`, `state_in_progress`, `state_needs_input`, `state_in_review`; Backlog needs no key since kbagent never queries for it). Optional with defaults: `name` (basename of `repo_path`), `ticket_provider` (`plane`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`. Never holds secrets — it lives in the repo.
+- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`, and a `[plane]` section (`workspace_slug`, `project_id`, and the `state_*` UUIDs — `state_ready`, `state_in_progress`, `state_needs_input`, `state_in_review`; Backlog needs no key since kbagent never queries for it). Optional with defaults: `name` (basename of `repo_path`), `ticket_provider` (`plane`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`. Never holds secrets — it is committed to each target project's repo. (kbagent's own `kbagent.toml` is gitignored, since it carries absolute paths specific to one machine.)
 - **Secrets** — layered, later layers winning: `~/.kbagent/.env` (override with `-f/--file`), then `~/.kbagent/<name>.env`, then real environment variables, which outrank both files. Each layer is optional and merged by `applyEnvFile`; values land in `process.env` so `devcontainer.json`'s `${localEnv:KB_AGENT_*}` bindings resolve. `KB_AGENT_PLANE_API_KEY` is required; `KB_AGENT_GITHUB_TOKEN` and `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` are optional and passed through to the container as env.
 
 **Credential scoping** — split the two files by what a credential is *scoped to*, not by how secret it is. `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` is tied to an Anthropic account, so it belongs in the global file. Everything else is tied to a specific integration instance — a Plane workspace, a set of GitHub repos, a Supabase project — and belongs in `~/.kbagent/<name>.env` as soon as two projects need different values. One credential covering every project (a single Plane workspace, a GitHub token spanning every repo) can stay global until that stops being true.

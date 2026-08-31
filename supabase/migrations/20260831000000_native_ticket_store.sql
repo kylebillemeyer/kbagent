@@ -6,12 +6,16 @@
 -- event-broker tables (events, active_sessions, artifacts) are discarded here and
 -- a separate spec will recreate whatever shape the broker actually needs.
 
-DROP TABLE IF EXISTS active_sessions CASCADE;
-DROP TABLE IF EXISTS events CASCADE;
-DROP TABLE IF EXISTS artifacts CASCADE;
-DROP TABLE IF EXISTS tickets CASCADE;
-DROP TABLE IF EXISTS workspace_integrations CASCADE;
-DROP TABLE IF EXISTS workspaces CASCADE;
+-- Reverse dependency order, so no CASCADE is needed. Deliberately omitted: if the
+-- live project has grown a dependent these migrations don't know about (a view, a
+-- foreign key from another schema), this should refuse rather than silently destroy
+-- it. Run `supabase db diff --linked` before applying.
+DROP TABLE IF EXISTS active_sessions;
+DROP TABLE IF EXISTS events;
+DROP TABLE IF EXISTS artifacts;
+DROP TABLE IF EXISTS tickets;
+DROP TABLE IF EXISTS workspace_integrations;
+DROP TABLE IF EXISTS workspaces;
 
 CREATE TABLE workspaces (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),

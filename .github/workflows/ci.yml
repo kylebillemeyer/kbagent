@@ -38,6 +38,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
+      # ubuntu-latest ships a postgresql client today, but the script depends on it;
+      # installing explicitly means an image change fails here instead of mysteriously.
+      - run: sudo apt-get install -y --no-install-recommends postgresql-client
       - run: npm ci
       - run: npm run test:db
         env:

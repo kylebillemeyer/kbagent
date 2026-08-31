@@ -6,6 +6,10 @@
 -- keys `<table>_<col>_<reftable>_<refcol>_fk` while Postgres names the ones in
 -- the migration `<table>_<col>_fkey`; that difference is cosmetic and would
 -- otherwise swamp the diff. Definitions are compared, names are not.
+--
+-- Structure only. RLS state and seed rows are deliberately absent: Drizzle cannot
+-- express either, so the database built from schema.ts would always differ. Both are
+-- covered by supabase/tests/*.test.sql against the migrated database instead.
 SELECT line FROM (
   SELECT 'COLUMN    |' || table_name || '|' || column_name || '|' || data_type
          || '|null=' || is_nullable
