@@ -5,3 +5,9 @@ node_modules/
 dist/
 .env
 .kbagent/
+
+# Next.js (ui/)
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.env.local
