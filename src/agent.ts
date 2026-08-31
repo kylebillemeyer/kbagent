@@ -81,12 +81,12 @@ export class Invoker {
     ].join('\n');
     fs.writeFileSync(path.join(kbDir, 'run.sh'), runScript, { mode: 0o700 });
 
+    // Secrets reach the agent via remoteEnv in .devcontainer/devcontainer.json,
+    // which DevPod injects into `devpod ssh --command` sessions (and takes precedence
+    // over --set-env). No per-exec env injection is needed here.
     const args = [
       'ssh', workspace,
       '--command', `bash ${containerWorktree}/.kbagent/run.sh`,
-      '--set-env', `CLAUDE_CODE_OAUTH_TOKEN=${this.cfg.claudeOAuthToken}`,
-      '--set-env', `GITHUB_TOKEN=${this.cfg.githubToken}`,
-      '--set-env', `KB_AGENT_PLANE_API_KEY=${this.cfg.planeApiKey}`,
       '--workdir', containerWorktree,
       '--start-services=false',
     ];

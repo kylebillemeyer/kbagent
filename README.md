@@ -34,7 +34,38 @@ To get your Claude Code OAuth token from the macOS Keychain:
 security find-generic-password -s "CLAUDE_CODE_OAUTH_TOKEN" -w
 ```
 
-### 3. Add a kbagent.toml to each target project
+### 3. (Optional) Give a project access to MCP servers
+
+Agent containers bake in **no** project-specific MCP servers. Instead, each target project declares the servers it wants in a `.mcp.json` at its repo root — Claude auto-discovers it, and the container is preconfigured to trust project-scoped servers (`enableAllProjectMcpServers`).
+
+Credentials flow from `~/.kbagent/.env` (host) into the container under the names each server expects. The host vars use a `KB_AGENT_` prefix; `remoteEnv` in `.devcontainer/devcontainer.json` maps each to the unprefixed name the server reads:
+
+| Host (`~/.kbagent/.env`) | In-container name | Used by |
+| --- | --- | --- |
+| `KB_AGENT_PLANE_API_KEY` | `PLANE_API_KEY` | Plane MCP |
+| `KB_AGENT_PLANE_WORKSPACE_SLUG` | `PLANE_WORKSPACE_SLUG` | Plane MCP |
+| `KB_AGENT_NOTION_API_KEY` | `NOTION_TOKEN` | Notion MCP |
+
+Because the container already exposes the native names, the project's `.mcp.json` needs no `env` block:
+
+```json
+{
+  "mcpServers": {
+    "plane": {
+      "command": "npx",
+      "args": ["-y", "@makeplane/plane-mcp-server"]
+    },
+    "notion": {
+      "command": "npx",
+      "args": ["-y", "@notionhq/notion-mcp-server"]
+    }
+  }
+}
+```
+
+To add a new server: put its key in `~/.kbagent/.env` as `KB_AGENT_<NAME>`, add a `remoteEnv` line mapping it to the name the server expects, and reference the server in the project's `.mcp.json`.
+
+### 4. Add a kbagent.toml to each target project
 
 Drop a `kbagent.toml` at the root of each repo you want kbagent to manage. The daemon walks up from cwd to find it.
 
@@ -69,11 +100,11 @@ Create the following states in Plane before running:
 - **Needs Input** (group: started)
 - **In Review** (group: started)
 
-### 4. Add a CLAUDE.md to the target project
+### 5. Add a CLAUDE.md to the target project
 
 Create a `CLAUDE.md` at the repo root with project context for the agent. At minimum include: what the project does, how to build and test it, and any constraints the agent must respect. The agent reads this file before every ticket.
 
-### 5. Run the daemon
+### 6. Run the daemon
 
 ```sh
 cd your-project
