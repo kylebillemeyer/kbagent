@@ -160,6 +160,7 @@ git push --force-with-lease origin feat/ticket-N
 ```bash
 npm run build    # tsc → dist/ ; required before the global `kbagent` sees your changes
 npm run lint     # tsc --noEmit
+npm run test:db  # apply every migration to a throwaway db and assert the schema
 npm run dev      # run from source via tsx (no build step)
 ```
 
@@ -168,4 +169,14 @@ Run the daemon from anywhere inside the repo — it walks up to find `kbagent.to
 kbagent run
 ```
 
-> Note: there is no automated test suite yet. `npm run build` / `npm run lint` are the only gates. Add tests alongside non-trivial logic as the project grows.
+> Note: there is no automated test suite for the TypeScript yet — `npm run build` / `npm run lint` are the only gates there. Add tests alongside non-trivial logic as the project grows. The database schema *is* covered; see below.
+
+### Migration testing
+
+`npm run test:db` creates a scratch database, applies every file in `supabase/migrations/` in filename order (the same order `supabase db push` uses), and runs the assertions in `supabase/tests/*.test.sql`. It then generates DDL from `src/db/schema.ts`, applies it to a second scratch database, and diffs the two structurally — catching drift between the Drizzle definitions and the SQL, which nothing else would.
+
+It needs a Postgres server to create scratch databases on, and defaults to the Supabase local dev database, so `supabase start` then `npm run test:db` works with no further setup. Override with `DATABASE_URL`; `SKIP_DRIZZLE_CHECK=1` runs the migrations and assertions only. Both scratch databases are dropped on exit, including on failure.
+
+CI runs this on every PR against a `postgres:15` service container, matching `supabase/config.toml`'s `db.major_version`.
+
+**What it does not cover.** It applies migrations from *empty*, so it proves the sequence is internally consistent — not that the remote project's live state matches what the migration history says. Drift there, or objects outside `public` depending on a dropped table, surfaces only on the real `supabase db push`. Run `supabase db diff --linked` before merging anything destructive.

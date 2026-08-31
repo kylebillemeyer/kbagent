@@ -15,3 +15,30 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run lint
+
+  migrations:
+    runs-on: ubuntu-latest
+    services:
+      # Matches supabase/config.toml's db.major_version, so the migrations are
+      # exercised on the same major the live project runs.
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run test:db
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres

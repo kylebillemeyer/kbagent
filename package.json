@@ -8,6 +8,7 @@
   "scripts": {
     "build": "tsc",
     "lint": "tsc --noEmit",
+    "test:db": "bash scripts/test-migrations.sh",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
