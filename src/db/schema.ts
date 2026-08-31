@@ -2,8 +2,14 @@
  * Drizzle mirror of supabase/migrations/20260831000000_native_ticket_store.sql.
  *
  * The SQL migration is authoritative. Drizzle is used for queries only and never
- * applies schema — drizzle-kit generate/push must not be run against this project.
- * When the migration changes, hand-edit this file to match it.
+ * applies schema: `drizzle-kit push` must never be run, and generated migrations
+ * must never be committed to supabase/migrations. (`npm run test:db` does run
+ * `drizzle-kit generate`, but into a temp dir it throws away — see below.)
+ * When the migration changes, hand-edit this file to match it. Do NOT replace this
+ * with `drizzle-kit pull` output: as of 0.31.10 pull emits `default(')` for the
+ * empty-string default on tickets.body, which does not parse, and it would also
+ * drop the author union type and every comment here. `npm run test:db` fails if
+ * this file drifts from the SQL, so the mirror cannot silently rot.
  *
  * Index and constraint names below are Postgres' own auto-generated names for the
  * unnamed indexes/constraints in the migration, so an introspection of the live

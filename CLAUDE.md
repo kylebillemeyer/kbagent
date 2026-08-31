@@ -179,4 +179,6 @@ It needs a Postgres server to create scratch databases on, and defaults to the S
 
 CI runs this on every PR against a `postgres:15` service container, matching `supabase/config.toml`'s `db.major_version`.
 
+**`schema.ts` is hand-written on purpose.** `drizzle-kit pull` would derive it from the database and make drift impossible, but as of 0.31.10 it emits `default(')` for `tickets.body`'s empty-string default — output that does not parse — and it also drops the `author` union type and every comment. `drizzle-kit` stays a devDependency used only by the test, which renders `schema.ts` to SQL via `generate` into a throwaway directory. Revisit if that bug is fixed or the schema outgrows hand-mirroring (~15 tables).
+
 **What it does not cover.** It applies migrations from *empty*, so it proves the sequence is internally consistent — not that the remote project's live state matches what the migration history says. Drift there, or objects outside `public` depending on a dropped table, surfaces only on the real `supabase db push`. Run `supabase db diff --linked` before merging anything destructive.
