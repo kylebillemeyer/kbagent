@@ -1,23 +1,16 @@
-# Identifies this project. Also selects its secrets file: ~/.kbagent/<name>.env
+# Identifies this project. Also selects its secrets file: ~/.kbagent/<name>.env,
+# and is the `workspaces.slug` the daemon looks up in the ticket database.
 # Defaults to the basename of repo_path when omitted.
 name            = "your-project"
 repo_path       = "/absolute/path/to/your-project"
 worktrees_dir   = "/absolute/path/to/your-project-worktrees"
-ticket_provider = "plane"
+ticket_provider = "native"
 validate_cmd    = "npm test"
 max_turns       = 50
 sleep_no_work   = 15
 sleep_error     = 300
 log_file        = "/Users/you/Library/Logs/kbagent.log"
 
-[plane]
-base_url       = "https://api.plane.so"
-workspace_slug = "your-workspace"
-project_id     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-
-# Backlog needs no key — kbagent only queries for Ready and Needs Input, and
-# ignores everything else, so it never needs the Backlog state's UUID.
-state_ready         = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-state_in_progress   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-state_needs_input   = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-state_in_review     = "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+# The ticket store itself is a Postgres connection string, which is a secret:
+# it lives in ~/.kbagent/.env (or ~/.kbagent/<name>.env) as KB_AGENT_DATABASE_URL,
+# never here — kbagent.toml is committed to the repo.

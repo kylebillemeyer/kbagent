@@ -1,6 +1,8 @@
 # kbagent
 
-Autonomous coding daemon for personal projects. Polls a ticket provider for ready tickets, creates a git worktree per ticket, runs Claude Code inside a devcontainer (via devpod) to implement the ticket, and manages the full lifecycle: assessor on turn-limit, needs-input blocking, PR creation, and worktree cleanup.
+Autonomous coding daemon for personal projects. Polls its ticket store for ready tickets, creates a git worktree per ticket, runs Claude Code inside a devcontainer (via devpod) to implement the ticket, and manages the full lifecycle: assessor on turn-limit, needs-input blocking, PR creation, and worktree cleanup.
+
+kbagent owns its tickets outright, in its own Postgres (Supabase) — there is no external ticket system. One database serves every project; a `workspaces` row per project keeps their tickets apart, and the UI over those tables is the human half of the loop.
 
 Designed to be project-agnostic via `kbagent.toml`. Each project keeps its own config file; `kbagent run` walks up from the current directory to find it.
 
@@ -21,15 +23,20 @@ kbagent/
 │   │   └── schema.ts         # Drizzle mirror of the SQL migrations (query-only)
 │   └── provider/
 │       ├── provider.ts       # Provider interface (abstraction boundary)
-│       └── plane.ts          # Plane.so implementation (state-based) — the only provider
+│       └── native.ts         # Postgres implementation — the only provider
 ├── scripts/
+│   ├── scratch-db.sh         # shared throwaway-database helpers (sourced, not run)
 │   ├── test-migrations.sh    # `npm run test:db`
+│   ├── test-provider.sh      # `npm run test:provider`
 │   └── introspect.sql        # normalized schema dump, for comparing two databases
 ├── supabase/
 │   ├── migrations/           # authoritative schema; CI applies these on push to main
 │   └── tests/                # SQL assertions run by test-migrations.sh
+├── test/
+│   ├── unit/                 # `npm run test:unit` — no database
+│   └── integration/          # provider tests against a real, migrated database
 ├── dist/                     # tsc output; what the installed `kbagent` actually runs
-├── kbagent.toml              # this project's own config (uses Plane)
+├── kbagent.toml              # this project's own config
 ├── kbagent.toml.example      # annotated reference config
 └── .devcontainer/
     └── devcontainer.json     # agent container definition (javascript-node:20-bookworm)
@@ -37,8 +44,10 @@ kbagent/
 
 ## Key constraints
 
-- **`dist/` is what runs** — the installed `kbagent` runs `dist/index.js`, not `src/`. Always `npm run build` after editing source, or test via `npm run dev` (tsx). `npm run lint` is `tsc --noEmit`.
-- **Provider interface is the abstraction boundary** — all ticket-system-specific knowledge (API calls, state IDs, priorities) lives inside `src/provider/`. `daemon.ts` and `agent.ts` must never import ticket-system types or make ticket API calls directly. Only Plane is implemented today; `index.ts` errors on any other `ticket_provider`.
+- **`dist/` is what runs** — the installed `kbagent` runs `dist/index.js`, not `src/`. Always `npm run build` after editing source, or test via `npm run dev` (tsx). `npm run lint` is `tsc --noEmit` over `src/` and, via `tsconfig.test.json`, `test/` — `tsx` does not type-check, so the tests are only checked there.
+- **Provider interface is the abstraction boundary** — all ticket-store knowledge (SQL, stage ids, priorities) lives inside `src/provider/`. `daemon.ts` and `agent.ts` must never import the Drizzle schema or query the database directly. Only `native` is implemented; `index.ts` errors on any other `ticket_provider`.
+- **The agent container never touches the ticket store** — the daemon writes `TICKET.md` into the worktree and reads `AGENT_STATUS.md` back out. No database credential is passed into the container, and nothing in there needs one.
+- **`supabase/migrations/*.sql` is the authoritative schema**; `src/db/schema.ts` is a hand-written Drizzle mirror used for queries only. Never run `drizzle-kit push`; `npm run test:db` fails if the two drift.
 - **AGENT_STATUS.md format is a contract** — the daemon parses it by reading the first line as a status keyword (`needs-review`, `needs-input`, `ready`). Never change this format without updating both the agent prompt in `agent.ts` and the parser (`applyStatus`) in `daemon.ts`.
 - **Worktree and devpod workspace are one unit** — they must be created and destroyed together. A worktree directory whose inode is replaced while a devpod container is still bound to it produces a stale/empty bind mount inside the container (the container freezes on the old, deleted inode). `setupWorktree` guards this with `isValidWorktree()` and `cleanupWorktree` tears the devpod workspace down alongside the worktree. See "Worktree + container lifecycle" below.
 - **macOS host** — the daemon and devpod run on macOS with Docker Desktop. The stale-bind-mount hazard above is specific to Docker Desktop's file sharing not re-resolving a running container's mount when the host path is replaced.
@@ -49,8 +58,9 @@ kbagent/
 
 ```
 for {
-    pick ticket (resumable needs-input first, then next ready)
+    findNext → highest-priority unblocked Ready ticket
     setup worktree (+ devpod workspace)
+    derive session mode from the worktree
     mark in-progress, write TICKET.md
     invoke_claude → output
     if rate-limited  → sleep until reset
@@ -60,7 +70,9 @@ for {
 }
 ```
 
-**Session mode** is derived per run (`daemon.ts`): a pending human reply → `needs-input`; else an existing `AGENT_PLAN.md` → `continuing`; else `fresh`.
+**One queue, one trigger.** Ready is the only stage the daemon polls, and moving a ticket back to Ready is how a human both starts *and* resumes work. There is no separate "a human replied" query: a comment cannot tell the daemon whether it means *here is your answer*, *extra context*, or *hold on*, so the stage move carries that intent explicitly.
+
+**Session mode comes from the worktree, not the ticket** — `deriveSessionMode(worktree)` in `daemon.ts`. With one trigger the ticket store can no longer say *why* the last session stopped, so the worktree answers: an `AGENT_STATUS.md` whose first line is `needs-input` → `needs-input`; else an existing `AGENT_PLAN.md` → `continuing`; else `fresh`. It must run **before** `processTicket` deletes the stale `AGENT_STATUS.md`.
 
 ### Worktree + container lifecycle (`src/daemon.ts`)
 
@@ -82,24 +94,31 @@ Two session types:
 
 All providers implement:
 - `checkDeps()` — resolve credentials, validate connectivity
-- `findNext(signal)` — highest-priority **Ready** ticket id whose `blocked_by` relations (if any) are all resolved, or `""`
-- `findResumable(signal)` — a needs-input ticket with a human reply, or `""`
+- `findNext(signal)` — highest-priority **Ready** ticket id with no unresolved blocker, or `""`
 - `fetchTicket(id, worktree, mode, signal)` — write `TICKET.md` into the worktree
 - `markInProgress / markNeedsInput / markNeedsReview / markReady`
-- `isComplete(id, signal)` — true if the ticket is in a final state (used for cleanup)
+- `isComplete(id, signal)` — true if the ticket is in a final stage (used for cleanup)
 - `worktreeName(id, signal)` — string appended to `ticket-` to form the worktree dir name
 
-**Plane provider** (`src/provider/plane.ts`) uses state UUIDs from config. Priority comes from Plane's native priority field (`urgent/high/medium/low`). Tickets are identified by UUID; `worktreeName` returns the `sequence_id` so worktree paths are predictable (`ticket-<seq>`).
+**Native provider** (`src/provider/native.ts`) queries Postgres through Drizzle over `KB_AGENT_DATABASE_URL`. `checkDeps` resolves the `workspaces` row whose `slug` equals the project `name` and every later query is scoped to it, so two projects sharing a database never see each other's tickets. Tickets are identified by UUID; `worktreeName` returns `tickets.number`, so worktree paths stay `ticket-<n>`.
+
+The interface's `(id, signal)` shape is an artifact of Plane being a remote API — every method re-fetched because every call was a round-trip. Implemented literally against Postgres that issues redundant queries, so each method here reads the row it needs **once** and works from it. `findNext` is a single statement: a correlated `NOT EXISTS` over `ticket_blockers`, joined to `priorities` for ordering — not a list call plus a round-trip per candidate.
+
+`RESOLVED_STAGES` (`in_review`, `done`) is named once in `native.ts`. It is simultaneously "this blocker no longer blocks" and "this ticket's worktree can be torn down" — the same question asked from two directions, so it must not be spelled out twice.
+
+**Priority does not gate eligibility.** `priority_id` is `NOT NULL DEFAULT 'medium'`, so it only decides *order*. Under Plane an unset priority silently hid a ticket from the agent; Ready is now the only gate.
 
 ### Config (`src/config.ts`)
 
 Two sources:
-- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`, and a `[plane]` section (`workspace_slug`, `project_id`, and the `state_*` UUIDs — `state_ready`, `state_in_progress`, `state_needs_input`, `state_in_review`; Backlog needs no key since kbagent never queries for it). Optional with defaults: `name` (basename of `repo_path`), `ticket_provider` (`plane`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`. Never holds secrets — it is committed to each target project's repo. (kbagent's own `kbagent.toml` is gitignored, since it carries absolute paths specific to one machine.)
-- **Secrets** — layered, later layers winning: `~/.kbagent/.env` (override with `-f/--file`), then `~/.kbagent/<name>.env`, then real environment variables, which outrank both files. Each layer is optional and merged by `applyEnvFile`; values land in `process.env` so `devcontainer.json`'s `${localEnv:KB_AGENT_*}` bindings resolve. `KB_AGENT_PLANE_API_KEY` is required; `KB_AGENT_GITHUB_TOKEN` and `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` are optional and passed through to the container as env.
+- **Project config** — `kbagent.toml`, found by walking up from cwd (`findTomlFile`), parsed with `smol-toml`. Required: `repo_path`, `worktrees_dir`. Optional with defaults: `name` (basename of `repo_path`), `ticket_provider` (`native`), `validate_cmd`, `max_turns` (50), `sleep_no_work` (15), `sleep_error` (300), `log_file`. See `kbagent.toml.example`. Never holds secrets — it is committed to each target project's repo. (kbagent's own `kbagent.toml` is gitignored, since it carries absolute paths specific to one machine.)
+- **Secrets** — layered, later layers winning: `~/.kbagent/.env` (override with `-f/--file`), then `~/.kbagent/<name>.env`, then real environment variables, which outrank both files. Each layer is optional and merged by `applyEnvFile`; values land in `process.env` so `devcontainer.json`'s `${localEnv:KB_AGENT_*}` bindings resolve. `KB_AGENT_DATABASE_URL` is required; `KB_AGENT_GITHUB_TOKEN` and `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` are optional and passed through to the container as env.
 
-**Credential scoping** — split the two files by what a credential is *scoped to*, not by how secret it is. `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` is tied to an Anthropic account, so it belongs in the global file. Everything else is tied to a specific integration instance — a Plane workspace, a set of GitHub repos, a Supabase project — and belongs in `~/.kbagent/<name>.env` as soon as two projects need different values. One credential covering every project (a single Plane workspace, a GitHub token spanning every repo) can stay global until that stops being true.
+`name` does double duty: it selects `~/.kbagent/<name>.env` **and** is the `workspaces.slug` the provider looks up. `checkDeps` fails naming the slug when no such workspace row exists.
 
-Config values that identify an integration (`plane.workspace_slug`, `plane.project_id`) live in `kbagent.toml` only. `agent.ts` injects them into the devpod spawn environment from resolved config, so `${localEnv:...}` bindings pick up *this* project's values — never duplicate them into a secrets file.
+**Credential scoping** — split the two files by what a credential is *scoped to*, not by how secret it is. `KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN` is tied to an Anthropic account, so it belongs in the global file. Everything else is tied to a specific integration instance — a ticket database, a set of GitHub repos — and belongs in `~/.kbagent/<name>.env` as soon as two projects need different values. One credential covering every project (one ticket database, a GitHub token spanning every repo) can stay global until that stops being true.
+
+**`KB_AGENT_DATABASE_URL` is a database credential, not an API key.** It is a Postgres URI — for Supabase, the pooler URI from Project Settings → Database, with the database password in it. A Supabase *service-role key* is a PostgREST JWT and cannot authenticate a Postgres connection, so it is not what the daemon uses; nothing here goes through PostgREST, which is why the tables ship with RLS enabled and no policies. `native.ts` passes `prepare: false` because the transaction-mode pooler hands out a different backend per transaction and cannot keep prepared statements.
 
 ### Commands (`src/index.ts`)
 
@@ -107,19 +126,21 @@ A single `commander` program. One command: `kbagent daemon` (alias `kbagent run`
 
 ## Ticket workflow
 
-This project uses Plane (state-based):
+Stages live in the `stages` table and a ticket's is `tickets.stage_id`:
 
 ```
-Backlog → Ready → In Progress → In Review → Done
+backlog → ready → in_progress → in_review → done
                        ↓
-                  Needs Input  (agent blocked, awaiting human reply)
+                  needs_input  (agent blocked, awaiting a human)
 ```
 
-Agents pick up tickets in **Ready** state, ordered by priority (urgent → high → medium → low). Tickets with no priority set are not picked up — always set a priority.
+Agents pick up tickets in **ready**, ordered by `priorities.sequence` (urgent → high → medium → low) then oldest first. Priority is `NOT NULL DEFAULT 'medium'`, so it only orders the queue — a ticket in ready is always picked up eventually.
 
-**Stage meanings** — **Backlog**: the task exists but isn't cleared for an agent (still being scoped, or waiting on a spec). **Ready**: cleared for the queue — scoped, prioritized, blockers resolved. Spec approval is *not* what this stage tracks; that happens upstream in Notion before the ticket is written. **In Progress / Needs Input / In Review** are set by kbagent. **Done** means the PR merged; nothing sets it today (see below). Cancelled is available throughout.
+**Stage meanings** — **backlog**: the task exists but isn't cleared for an agent (still being scoped, or waiting on a spec). **ready**: cleared for the queue — scoped, prioritized, blockers resolved. Spec approval is *not* what this stage tracks; that happens upstream in Notion before the ticket is written. **in_progress / needs_input / in_review** are set by kbagent. **done** means the PR merged; nothing sets it today (see below). **cancelled** is available throughout.
 
-**Done is not yet automated.** `isComplete()` treats **In Review** as terminal for cleanup purposes, and no code moves a ticket to Done — that closes on merge once the event broker exists (KBAGENT-6), which is also the only thing that can observe a merge. Until then, close merged tickets by hand.
+**Moving a ticket back to ready is the only trigger.** It starts a fresh ticket and it resumes one parked in `needs_input` — after answering the agent's question with a comment, move the ticket to ready and the daemon picks it up with the replies in `TICKET.md`.
+
+**Done is not yet automated.** `isComplete()` treats **in_review** and **done** alike for cleanup purposes, and no code moves a ticket to done — that closes on merge once the event broker exists, which is also the only thing that can observe a merge. Until then, close merged tickets by hand.
 
 **Tickets are scoped agent tasks, not specs.** Product spec → tech spec → task breakdown happens upstream (Notion), outside kbagent's write path. A ticket is one output of that breakdown: a single, independently-implementable unit of work. It carries what the agent needs to execute — not the reasoning behind it. The agent treats TICKET.md as its task, and only opens the linked spec doc(s) if the task or acceptance criteria are ambiguous.
 
@@ -136,9 +157,9 @@ One or two sentences: exactly what to build.
 - Tech: <link>   (omit if this ticket has no tech spec)
 ```
 
-Dependencies are **not** written in the body — set them as a native Plane `blocked by` relation on the ticket (Issue → Relations). `fetchTicket` reads the relation and appends a `## Blocked by` section (listing each blocker's `#<sequence_id>`) to the bottom of `TICKET.md` for the agent to see.
+Dependencies are **not** written in the body — they are rows in `ticket_blockers` (`ticket_id` is blocked by `blocker_id`), added from the UI. `fetchTicket` appends a `## Blocked by` section listing each blocker's number, title and stage to the bottom of `TICKET.md` for the agent to see.
 
-**Dependency tracking** — `findNext` calls Plane's work-item relations endpoint (`GET .../work-items/{id}/relations/`) and skips any Ready ticket with an unresolved `blocked_by` relation (the blocker hasn't reached **In Review**), so blocked work never enters the agent queue. Endpoint and response shape confirmed against `makeplane/plane` source (`apps/api/plane/api/views/issue.py` — note it's under `work-items/`, not the older `issues/` path).
+**Dependency tracking** — `findNext` excludes any ready ticket that has a blocker outside `in_review`/`done`, in the same query, so blocked work never enters the agent queue. `ticket_blockers` is the whole dependency graph: nothing else records dependency state, and branch parentage is re-derived from it rather than stored.
 
 **Self-review before every push** — the session spawns a subagent to review its own diff (acceptance-criteria compliance, correctness, maintainability) and addresses the findings before pushing, on the initial push and every push after it. This is the only automated review a PR gets: there is deliberately no separate review-agent pass triggered by the PR itself, and PRs open ready for review rather than as drafts. The instruction lives in the agent prompt in `agent.ts`.
 
@@ -150,11 +171,13 @@ Dependencies are **not** written in the body — set them as a native Plane `blo
    ```
 2. Stop without opening a PR.
 
+The daemon posts that explanation as an `author = 'agent'` comment on the ticket and moves it to `needs_input`, in one transaction. Answer with a `human` comment and move the ticket back to ready; the next session runs in `needs-input` mode with the whole exchange appended to `TICKET.md`.
+
 ## PR and branching workflow
 
 **Branch from the dependency, not from main.**
 
-If TICKET.md has a `## Blocked by` section (populated from the ticket's Plane relation), create the feature branch from the dependency's branch. A PR diff should only show work done for that ticket.
+If TICKET.md has a `## Blocked by` section (populated from `ticket_blockers`), create the feature branch from the dependency's branch. A PR diff should only show work done for that ticket.
 
 After a dependency merges into main, rebase before review:
 ```bash
@@ -166,10 +189,13 @@ git push --force-with-lease origin feat/ticket-N
 ## Development
 
 ```bash
-npm run build    # tsc → dist/ ; required before the global `kbagent` sees your changes
-npm run lint     # tsc --noEmit
-npm run test:db  # apply every migration to a throwaway db and assert the schema
-npm run dev      # run from source via tsx (no build step)
+npm run build         # tsc → dist/ ; required before the global `kbagent` sees your changes
+npm run lint          # tsc --noEmit, over src/ and test/
+npm test              # everything below, in order
+npm run test:unit     # node --test via tsx; no database
+npm run test:db       # apply every migration to a throwaway db and assert the schema
+npm run test:provider # provider tests against a throwaway, freshly migrated db
+npm run dev           # run from source via tsx (no build step)
 ```
 
 Run the daemon from anywhere inside the repo — it walks up to find `kbagent.toml`:
@@ -177,7 +203,14 @@ Run the daemon from anywhere inside the repo — it walks up to find `kbagent.to
 kbagent run
 ```
 
-> Note: there is no automated test suite for the TypeScript yet — `npm run build` / `npm run lint` are the only gates there. Add tests alongside non-trivial logic as the project grows. The database schema *is* covered; see below.
+### TypeScript testing
+
+Node's built-in test runner with the `tsx` require hook — `node --require tsx/cjs --test <files>`. The project is CommonJS, so that needs no loader flag and no extra dependency (`tsx` is already a devDependency). Do not add vitest or jest.
+
+- **`test/unit/`** — no database, no filesystem beyond a temp dir. Covers `deriveSessionMode`, the `applyStatus` keyword dispatch (the AGENT_STATUS.md contract, using a recording stub `Provider`), and `parseRateLimitSleep`.
+- **`test/integration/`** — `src/provider/native.ts` against a real Postgres. The provider is almost entirely SQL — ordering, a correlated `NOT EXISTS`, a transactional stage-change-plus-comment — so mocking the driver would only assert that the query builder was called. `scripts/test-provider.sh` creates a scratch database, applies every migration, and passes it in as `KB_AGENT_DATABASE_URL`. Each test gets its own `workspaces` row, so tests cannot see each other's tickets.
+
+Both scripts share `scripts/scratch-db.sh` for creating, migrating and dropping a scratch database. CI runs the unit tests in the `validate` job and both database suites in `migrations`, which already has a `postgres:15` service.
 
 ### Migration testing
 

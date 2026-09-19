@@ -7,8 +7,11 @@
   },
   "scripts": {
     "build": "tsc",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
+    "test": "npm run test:unit && npm run test:db && npm run test:provider",
+    "test:unit": "node --require tsx/cjs --test test/unit/*.test.ts",
     "test:db": "bash scripts/test-migrations.sh",
+    "test:provider": "bash scripts/test-provider.sh",
     "dev": "tsx src/index.ts"
   },
   "dependencies": {

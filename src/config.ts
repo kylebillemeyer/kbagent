@@ -4,16 +4,6 @@ import * as os from 'os';
 import * as path from 'path';
 import { parse as parseToml } from 'smol-toml';
 
-export interface PlaneConfig {
-  baseUrl: string;
-  workspaceSlug: string;
-  projectId: string;
-  stateReady: string;
-  stateInProgress: string;
-  stateNeedsInput: string;
-  stateInReview: string;
-}
-
 export interface Config {
   projectName: string;
   repoPath: string;
@@ -24,8 +14,7 @@ export interface Config {
   sleepNoWork: number;
   sleepError: number;
   validateCmd: string;
-  plane: PlaneConfig;
-  planeApiKey: string;
+  databaseUrl: string;
   githubToken: string;
   claudeOAuthToken: string;
 }
@@ -40,15 +29,6 @@ interface ProjectToml {
   sleep_no_work?: number;
   sleep_error?: number;
   log_file?: string;
-  plane: {
-    base_url?: string;
-    workspace_slug: string;
-    project_id: string;
-    state_ready: string;
-    state_in_progress: string;
-    state_needs_input: string;
-    state_in_review: string;
-  };
 }
 
 const KBAGENT_DIR = path.join(os.homedir(), '.kbagent');
@@ -60,20 +40,11 @@ export function loadConfig(globalEnvFile?: string): Config {
 
   if (!proj.repo_path) throw new Error('kbagent.toml: repo_path is required');
   if (!proj.worktrees_dir) throw new Error('kbagent.toml: worktrees_dir is required');
-  if (!proj.plane) throw new Error('kbagent.toml: [plane] section is required');
-
-  const p = proj.plane;
-  if (!p.workspace_slug) throw new Error('kbagent.toml: plane.workspace_slug is required');
-  if (!p.project_id) throw new Error('kbagent.toml: plane.project_id is required');
-  if (!p.state_ready) throw new Error('kbagent.toml: plane.state_ready is required');
-  if (!p.state_in_progress) throw new Error('kbagent.toml: plane.state_in_progress is required');
-  if (!p.state_needs_input) throw new Error('kbagent.toml: plane.state_needs_input is required');
-  if (!p.state_in_review) throw new Error('kbagent.toml: plane.state_in_review is required');
 
   // Secrets load in layers, lowest precedence first: the global file holds
   // account-scoped credentials (one Anthropic account), the project file holds
-  // integration-scoped ones (this project's Plane workspace, GitHub repos, Supabase
-  // project). Real environment variables outrank both. Values land in process.env so
+  // integration-scoped ones (this project's ticket database, GitHub repos). Real
+  // environment variables outrank both. Values land in process.env so
   // devcontainer.json's `${localEnv:KB_AGENT_*}` bindings resolve for this project.
   const projectName = proj.name ?? path.basename(proj.repo_path);
   const shellKeys = new Set(Object.keys(process.env));
@@ -85,21 +56,12 @@ export function loadConfig(globalEnvFile?: string): Config {
     repoPath: proj.repo_path,
     worktreesDir: proj.worktrees_dir,
     logFile: proj.log_file ?? path.join(os.homedir(), 'Library', 'Logs', 'kbagent.log'),
-    ticketProvider: proj.ticket_provider ?? 'plane',
+    ticketProvider: proj.ticket_provider ?? 'native',
     maxTurns: proj.max_turns ?? 50,
     sleepNoWork: proj.sleep_no_work ?? 15,
     sleepError: proj.sleep_error ?? 300,
     validateCmd: proj.validate_cmd ?? '',
-    plane: {
-      baseUrl: p.base_url ?? 'https://api.plane.so',
-      workspaceSlug: p.workspace_slug,
-      projectId: p.project_id,
-      stateReady: p.state_ready,
-      stateInProgress: p.state_in_progress,
-      stateNeedsInput: p.state_needs_input,
-      stateInReview: p.state_in_review,
-    },
-    planeApiKey: requireEnv('KB_AGENT_PLANE_API_KEY'),
+    databaseUrl: requireEnv('KB_AGENT_DATABASE_URL'),
     githubToken: process.env['KB_AGENT_GITHUB_TOKEN'] ?? '',
     claudeOAuthToken: process.env['KB_AGENT_CLAUDE_CODE_OAUTH_TOKEN'] ?? '',
   };
@@ -113,7 +75,7 @@ export function loadConfig(globalEnvFile?: string): Config {
 // typed with -f is not: silently ignoring a typo there would start the agent with an
 // empty token and fail much further downstream. Errors other than "not found" always
 // throw — an unreadable ~/.kbagent/.env would otherwise surface as the misleading
-// "KB_AGENT_PLANE_API_KEY is required".
+// "KB_AGENT_DATABASE_URL is required".
 function applyEnvFile(filePath: string, shellKeys: Set<string>, required = false): void {
   let raw: string;
   try {

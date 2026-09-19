@@ -1,0 +1,10 @@
+{
+  "/_global-error/page": "/_global-error",
+  "/_not-found/page": "/_not-found",
+  "/api/tickets/[id]/blockers/route": "/api/tickets/[id]/blockers",
+  "/api/tickets/[id]/comments/route": "/api/tickets/[id]/comments",
+  "/api/tickets/[id]/route": "/api/tickets/[id]",
+  "/api/workspaces/[slug]/tickets/route": "/api/workspaces/[slug]/tickets",
+  "/api/workspaces/route": "/api/workspaces",
+  "/page": "/"
+}
