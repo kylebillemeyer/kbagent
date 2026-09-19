@@ -79,11 +79,14 @@ describe('contract boundary', () => {
 });
 
 describe('poolerOptions', () => {
-  it('appends the pooler parameters when they are absent', () => {
-    const { url } = poolerOptions('postgresql://u:p@host:6543/postgres');
-    // They are appended to the stored URL's shape, then consumed — postgres.js would
-    // forward anything left behind to the server as a startup parameter and fail.
-    assert.equal(url, 'postgresql://u:p@host:6543/postgres');
+  it('leaves a bare URL untouched and still assumes pooled', () => {
+    const opts = poolerOptions('postgresql://u:p@host:6543/postgres');
+    assert.equal(opts.url, 'postgresql://u:p@host:6543/postgres');
+    // Absent has to mean "assume pooled": prepared statements against a
+    // transaction-mode pooler fail at query time, not at connect time.
+    assert.equal(opts.prepare, false);
+    // The ui wrapper's whole job — the daemon's default is 2.
+    assert.equal(opts.max, 1, 'one connection per serverless instance');
   });
 
   it('translates them into driver options instead of sending them to Postgres', () => {

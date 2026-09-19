@@ -10,6 +10,7 @@ import postgres from 'postgres';
 // Drizzle is confined to this module and ./queries.ts; every route handler works in
 // the Zod shapes from ./contracts. See src/lib/contracts/index.ts.
 import * as schema from '../../../src/db/schema';
+import { poolerOptions as sharedPoolerOptions, type ConnectionOptions } from '../../../src/db/connection';
 
 /**
  * Drizzle over `DATABASE_URL`. Supabase is used for auth only — never `supabase.from()`,
@@ -18,42 +19,13 @@ import * as schema from '../../../src/db/schema';
 export type Db = ReturnType<typeof createDb>['db'];
 
 /**
- * Normalize the connection string to the pooled shape and split out the two pooler
- * parameters, which are directives to the *client*, not to Postgres.
- *
- * `?pgbouncer=true&connection_limit=1` is the canonical Supabase transaction-pooler
- * URI. Both parameters are a Prisma convention: Prisma consumes them and never sends
- * them on. postgres.js does not know them, and anything it does not recognise it
- * forwards as a startup parameter — so leaving them in the URL makes the server
- * answer `unrecognized configuration parameter "pgbouncer"` and no connection opens
- * at all. They are therefore appended (so the value in the environment is the URI
- * Supabase hands you, unedited) and then translated here:
- *
- *   pgbouncer=true      -> prepare: false. The transaction-mode pooler hands out a
- *                          different backend per transaction and cannot carry a
- *                          prepared statement across. The daemon's provider makes the
- *                          same choice for the same reason.
- *   connection_limit=N  -> max: N. One connection per serverless instance; the pooler
- *                          multiplexes, so a per-instance pool would only hold
- *                          backends open against it.
+ * The connection-string handling is shared with the daemon — see
+ * ../../../src/db/connection.ts for why `?pgbouncer=true&connection_limit=1` cannot be
+ * handed to postgres.js as-is. Only the default pool size differs: one connection per
+ * serverless instance, since the pooler multiplexes and a per-instance pool would just
+ * hold backends open against it.
  */
-export function poolerOptions(rawUrl: string): { url: string; prepare: boolean; max: number } {
-  const url = new URL(rawUrl);
-  if (!url.searchParams.has('pgbouncer')) url.searchParams.set('pgbouncer', 'true');
-  if (!url.searchParams.has('connection_limit')) url.searchParams.set('connection_limit', '1');
-
-  const pgbouncer = url.searchParams.get('pgbouncer') === 'true';
-  const limit = Number(url.searchParams.get('connection_limit'));
-
-  url.searchParams.delete('pgbouncer');
-  url.searchParams.delete('connection_limit');
-
-  return {
-    url: url.href,
-    prepare: !pgbouncer,
-    max: Number.isFinite(limit) && limit > 0 ? limit : 1,
-  };
-}
+export const poolerOptions = (rawUrl: string): ConnectionOptions => sharedPoolerOptions(rawUrl, 1);
 
 function createDb(rawUrl: string) {
   const { url, prepare, max } = poolerOptions(rawUrl);
