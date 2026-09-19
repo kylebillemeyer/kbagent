@@ -5,3 +5,11 @@ node_modules/
 dist/
 .env
 .kbagent/
+
+# Next.js build output for ui/ (generated; never committed). These rules live here
+# rather than in ui/.gitignore so a branch that has not created ui/ yet still ignores
+# the artifacts a previous checkout left in the working tree.
+.next/
+next-env.d.ts
+*.tsbuildinfo
+.env.local
